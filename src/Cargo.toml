@@ -6,15 +6,10 @@ members = ["fastglob"]
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.97"
-# crates.io publish metadata (rust-standards Phase 1).
-# TODO(operator): placeholder author — replace before a real `cargo publish`.
 license = "MIT"
-authors = ["fastglob maintainers <fastglob@example.com>"]
+authors = ["Moe Shawky <moe@libermoe.com>"]
 description = "A single-pass, byte-exact pathname-globbing engine for Linux, compatibility-locked to the installed Python stdlib glob."
-# TODO(operator): currently a PRIVATE gogs (AGENTS.md RELEASE HYGIENE);
-# repoint to the public GitHub URL before publishing. Credentials are
-# deliberately omitted from this public metadata field.
-repository = "http://tunnel.prankh.libermoe.com:26003/moe/fastglob"
+repository = "https://github.com/moeshawky/fastglob"
 # Workspace-root-relative: inherited paths re-express package-relative, so
 # this points at the repo-root README (one level above the workspace root).
 readme = "../README.md"

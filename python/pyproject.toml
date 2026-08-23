@@ -45,11 +45,10 @@ description = "Python compatibility wrapper around the fastglob engine"
 # inside python/, so the repo-root README.md cannot be referenced directly).
 # Until then the wheel carries the one-line description; the repo README
 # documents this package fully.
-license = "MIT" # SPDX expression (PEP 639); file: LICENSE at repo root (MIT, TODO placeholder)
+license = "MIT"
 requires-python = ">=3.8"
-# TODO (operator): replace placeholder identity before publishing.
-authors = [{ name = "fastglob maintainers", email = "fastglob@example.com" }]
-maintainers = [{ name = "fastglob maintainers", email = "fastglob@example.com" }]
+authors = [{ name = "Moe Shawky", email = "moe@libermoe.com" }]
+maintainers = [{ name = "Moe Shawky", email = "moe@libermoe.com" }]
 keywords = ["glob", "pathname", "pattern-matching", "filesystem", "linux"]
 classifiers = [
     # Tested legs only: 3.8 = requires-python floor (enforced via ruff
@@ -78,7 +77,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "http://tunnel.prankh.libermoe.com:26003/moe/fastglob"
+Repository = "https://github.com/moeshawky/fastglob"
 
 # ── Ruff (linter + formatter) ─────────────────────────────────────────────
 [tool.ruff]
