@@ -1,0 +1,39 @@
+{
+  "_comment": "Example MCP config for developer agents (the real .mcp.json is gitignored and machine-local). Copy to .mcp.json and fill in your own credentials. hive-mind + sequential-thinking are required by AGENTS.md load order; searxng is optional (documentation lookup).",
+  "mcpServers": {
+    "searxng": {
+      "type": "local",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-searxng"
+      ],
+      "env": {
+        "SEARXNG_URL": "https://your-searxng-instance.example",
+        "SEARXNG_USERNAME": "<your-username>",
+        "SEARXNG_PASSWORD": "<your-password>"
+      },
+      "directTools": true,
+      "lifecycle": "lazy"
+    },
+    "hive-mind": {
+      "type": "remote",
+      "url": "https://your-hivemind.example/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-bearer-token>"
+      },
+      "directTools": true,
+      "lifecycle": "eager"
+    },
+    "sequential-thinking": {
+      "type": "local",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "directTools": true,
+      "lifecycle": "eager"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+# Cargo configuration (rust-standards Phase 2) — shared build settings for
+# this workspace.
+#
+# Linker: neither mold nor clang is installed on the dev machine
+# (VERIFIED 2026-08-23 via `command -v`), so no linker override is active.
+# If mold is installed later, enable:
+#
+#   [target.x86_64-unknown-linux-gnu]
+#   rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+#
+# Keep this file in the workspace root (src/): cargo discovers .cargo/
+# config.toml by walking up from the invocation directory.

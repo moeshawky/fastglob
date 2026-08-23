@@ -1,0 +1,30 @@
+# cargo-deny configuration (rust-standards Phase 2 / G5).
+# Run from this directory (the cargo workspace root): `cargo deny check`.
+#
+# Dependency tree is deliberately minimal: libc 0.2 only (AGENTS.md BANNED:
+# no new dependencies without measured justification).
+
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "warn"
+notice = "warn"
+
+[licenses]
+unlicensed = "deny"
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcard-versions = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,0 +1,1179 @@
+[
+  {
+    "id": "b01",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/*",
+    "kwargs": {},
+    "note": "all top entries of basic/ incl. empty dir"
+  },
+  {
+    "id": "b02",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/?",
+    "kwargs": {},
+    "note": "single-char names only: a b c d A"
+  },
+  {
+    "id": "b03",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/[abc]",
+    "kwargs": {},
+    "note": "character class exact members"
+  },
+  {
+    "id": "b04",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/[a-z]",
+    "kwargs": {},
+    "note": "range class; A (uppercase) must not match"
+  },
+  {
+    "id": "b05",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/[!abc]",
+    "kwargs": {},
+    "note": "negated class; only d and A among single-char names"
+  },
+  {
+    "id": "b06",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/*b*",
+    "kwargs": {},
+    "note": "combination: stars around literal b (ab,ac? no - ab abc b)"
+  },
+  {
+    "id": "b07",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/?[123]",
+    "kwargs": {},
+    "note": "combination: ? + class (x1 y2 z3)"
+  },
+  {
+    "id": "b08",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/[a-c]*",
+    "kwargs": {},
+    "note": "combination: class prefix + star"
+  },
+  {
+    "id": "b09",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/*py",
+    "kwargs": {},
+    "note": "suffix match: file.py"
+  },
+  {
+    "id": "b10",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/*.txt",
+    "kwargs": {},
+    "note": "extension match: notes.txt"
+  },
+  {
+    "id": "b11",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/[!a-z]*",
+    "kwargs": {},
+    "note": "negated range + star: only A"
+  },
+  {
+    "id": "b12",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/?1",
+    "kwargs": {},
+    "note": "single-char + literal: x1"
+  },
+  {
+    "id": "b13",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/[a-d]",
+    "kwargs": {},
+    "note": "range class a-d: a b c d (A excluded)"
+  },
+  {
+    "id": "b14",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/*.py",
+    "kwargs": {},
+    "note": "literal dot + extension: file.py only (script.sh/notes.txt excluded)"
+  },
+  {
+    "id": "b15",
+    "section": "8.1",
+    "kind": "glob",
+    "pattern": "basic/*b",
+    "kwargs": {},
+    "note": "suffix b: ab, b"
+  },
+  {
+    "id": "l01",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "literal/exact_name.txt",
+    "kwargs": {},
+    "note": "literal filename"
+  },
+  {
+    "id": "l02",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "literal/sub",
+    "kwargs": {},
+    "note": "literal directory"
+  },
+  {
+    "id": "l03",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "literal/sub/deep_target.txt",
+    "kwargs": {},
+    "note": "literal nested path"
+  },
+  {
+    "id": "l04",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "literal/zzz_no_such_*",
+    "kwargs": {},
+    "note": "pattern with no matches -> empty list"
+  },
+  {
+    "id": "l05",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "@ROOT@/literal/exact_name.txt",
+    "kwargs": {},
+    "note": "absolute path; @ROOT@ expands to tree abs path at capture time"
+  },
+  {
+    "id": "l06",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "literal//sub//deep_target.txt",
+    "kwargs": {},
+    "note": "repeated separators, no magic: oracle yields pattern verbatim (double slashes preserved)"
+  },
+  {
+    "id": "l07",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "literal/sub/",
+    "kwargs": {},
+    "note": "trailing separator: matches directory, result keeps trailing slash"
+  },
+  {
+    "id": "l08",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "literal//",
+    "kwargs": {},
+    "note": "repeated + trailing separator on dir"
+  },
+  {
+    "id": "l09",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "basic/empty/",
+    "kwargs": {},
+    "note": "trailing separator on empty dir"
+  },
+  {
+    "id": "l10",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "/nonexistent_fglob_dir/*",
+    "kwargs": {},
+    "note": "absolute path, no matches -> empty list"
+  },
+  {
+    "id": "l11",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "literal/sub/*",
+    "kwargs": {},
+    "note": "star under literal dir"
+  },
+  {
+    "id": "l12",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "literal/*/inner.txt",
+    "kwargs": {},
+    "note": "wildcard component + literal: target/inner.txt"
+  },
+  {
+    "id": "l13",
+    "section": "8.2",
+    "kind": "glob",
+    "pattern": "literal/no_such_thing",
+    "kwargs": {},
+    "note": "non-magic no-match: nonexistent literal path -> [] (no exception)"
+  },
+  {
+    "id": "h01",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/*",
+    "kwargs": {},
+    "note": "wildcard default: hidden entries excluded"
+  },
+  {
+    "id": "h02",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/*",
+    "kwargs": {
+      "include_hidden": true
+    },
+    "note": "wildcard include_hidden=True: .hidden and dirs included"
+  },
+  {
+    "id": "h03",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/.*",
+    "kwargs": {},
+    "note": "explicitly dot-prefixed pattern: hidden entries matched"
+  },
+  {
+    "id": "h04",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/.hidden",
+    "kwargs": {},
+    "note": "literal hidden file"
+  },
+  {
+    "id": "h05",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/visible*",
+    "kwargs": {},
+    "note": "prefix match: visible + visible_dir"
+  },
+  {
+    "id": "h06",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/*dir",
+    "kwargs": {},
+    "note": "suffix match: visible_dir only (.hidden_dir excluded by default)"
+  },
+  {
+    "id": "h07",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/*dir",
+    "kwargs": {
+      "include_hidden": true
+    },
+    "note": "suffix match incl. hidden: visible_dir + .hidden_dir"
+  },
+  {
+    "id": "h08",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/**",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "recursive default: hidden entries excluded"
+  },
+  {
+    "id": "h09",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/**",
+    "kwargs": {
+      "recursive": true,
+      "include_hidden": true
+    },
+    "note": "recursive include_hidden: hidden dirs traversed, contents under hidden prefix"
+  },
+  {
+    "id": "h10",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/**/*",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "recursive star: files only, hidden excluded"
+  },
+  {
+    "id": "h11",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/**/*",
+    "kwargs": {
+      "recursive": true,
+      "include_hidden": true
+    },
+    "note": "recursive star incl. hidden: v1.txt + h1.txt"
+  },
+  {
+    "id": "h12",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/visible_dir/*",
+    "kwargs": {},
+    "note": "explicit visible dir contents"
+  },
+  {
+    "id": "h13",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/.hidden_dir/*",
+    "kwargs": {},
+    "note": "explicit dot-prefixed dir contents"
+  },
+  {
+    "id": "h14",
+    "section": "8.3",
+    "kind": "glob",
+    "pattern": "hidden/.hidden_dir",
+    "kwargs": {},
+    "note": "literal dot-prefixed directory: matches despite hidden prefix (explicit in pattern)"
+  },
+  {
+    "id": "r01",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "recursive/**",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "zero-dir + nested matches; includes 'recursive/' self entry (trailing slash)"
+  },
+  {
+    "id": "r02",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "recursive/**/",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "directory-only recursive pattern"
+  },
+  {
+    "id": "r03",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "recursive/**/*",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "recursive star at every depth"
+  },
+  {
+    "id": "r04",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "recursive/**/*.py",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "recursive extension match: one.py three.py deep.py"
+  },
+  {
+    "id": "r05",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "recursive/level1/**",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "recursive from subtree root"
+  },
+  {
+    "id": "r06",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "a/**/b",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "zero-directory ** match: a/b + nested a/c/b a/d/e/b"
+  },
+  {
+    "id": "r07",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "a/**",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "full subtree incl. 'a/' self entry"
+  },
+  {
+    "id": "r08",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "a/**/*",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "recursive star: files at all depths"
+  },
+  {
+    "id": "r09",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "recursive/**/level3/**",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "more than one ** in pattern"
+  },
+  {
+    "id": "r10",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "recursive/**/t.txt",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "zero-dir suffix match: recursive/t.txt only"
+  },
+  {
+    "id": "r11",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "recursive/level1/**/deep.py",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "nested anchor + ** suffix"
+  },
+  {
+    "id": "r12",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "**",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "top-level bare **: empty-string self entry is skipped by iglob; crosses into symlinks/ (cycle subtree, ELOOP-terminated on this kernel) and to_dir (cross-subtree link)",
+    "unspecified_zone": true
+  },
+  {
+    "id": "r13",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "**/t.txt",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "top-level ** prefix + suffix",
+    "unspecified_zone": true
+  },
+  {
+    "id": "r14",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "**/b",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "top-level ** prefix + literal: a/b a/c/b a/d/e/b; duplicate-multiplicity probe (capture records per-path counts)"
+  },
+  {
+    "id": "r15",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "recursive/**/*.txt",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "recursive *.txt: zero-dir t.txt + one-dir level1/two.txt"
+  },
+  {
+    "id": "s01",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/*",
+    "kwargs": {},
+    "note": "all top names incl. broken + cycle + mutual (scandir-based, no stat)"
+  },
+  {
+    "id": "s02",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/to_file",
+    "kwargs": {},
+    "note": "literal symlink to file: _lexists -> matched"
+  },
+  {
+    "id": "s03",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/*file",
+    "kwargs": {},
+    "note": "wildcard matching symlink name to_file"
+  },
+  {
+    "id": "s04",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/to_dir",
+    "kwargs": {},
+    "note": "literal symlink to directory"
+  },
+  {
+    "id": "s05",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/to_dir/*",
+    "kwargs": {},
+    "note": "traverse through dir symlink: v1.txt"
+  },
+  {
+    "id": "s06",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/chain/one",
+    "kwargs": {},
+    "note": "literal chain link (one -> two -> to_file, 2 hops)"
+  },
+  {
+    "id": "s07",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/chain/*",
+    "kwargs": {},
+    "note": "chain dir contents: one, two"
+  },
+  {
+    "id": "s08",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/**",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "CYCLE case: cycle/self->.. and mutual/x<->y. VERIFIED on this kernel: ELOOP at SYMLOOP_MAX=40 hops prunes recursion (OSError swallowed in _iterdir), terminates, depth cap ~41. Depth is OBSERVED (Level C); requirement = no hang (10s timeout guard).",
+    "unspecified_zone": true
+  },
+  {
+    "id": "s09",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/**/v1.txt",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "recursive through dir symlink: symlinks/to_dir/v1.txt. CYCLE-ZONE (D4a-fix 2026-08-20): oracle nondeterministic on cycle expansion — VERIFIED 2026-08-20, Level C: 20 oracle runs -> 40 paths x19, 34 paths x1 (ELOOP/SYMLOOP_MAX pruning depends on walk order). Compared via the cycle-zone protocol (docs/compatibility-contract.md §8.5a), not strict multiset.",
+    "unspecified_zone": true
+  },
+  {
+    "id": "s10",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/broken",
+    "kwargs": {},
+    "note": "literal broken symlink: _lexists (lstat) -> matched"
+  },
+  {
+    "id": "s11",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/*broken*",
+    "kwargs": {},
+    "note": "wildcard matching broken symlink name"
+  },
+  {
+    "id": "s12",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/cycle/*",
+    "kwargs": {},
+    "note": "cycle dir contents: self (single level, no recursion)"
+  },
+  {
+    "id": "s13",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/mutual/*",
+    "kwargs": {},
+    "note": "mutual dir contents: x, y"
+  },
+  {
+    "id": "s14",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/mutual/x/*",
+    "kwargs": {},
+    "note": "OBSERVED n=0: os.open(x, O_NOFOLLOW) hits the x<->y loop (ELOOP), swallowed in _iterdir -> empty. Name-based match does NOT occur here; single-level listing of the link pair is covered by s13"
+  },
+  {
+    "id": "s15",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/chain/one/*",
+    "kwargs": {},
+    "note": "star under symlink-to-FILE chain endpoint: scandir fails (ENOTDIR) -> expect empty (recorded, not fabricated)"
+  },
+  {
+    "id": "s16",
+    "section": "8.5",
+    "kind": "glob",
+    "pattern": "symlinks/chain*",
+    "kwargs": {},
+    "note": "wildcard matching the chain dir name: symlinks/chain"
+  },
+  {
+    "id": "e01",
+    "section": "8.6",
+    "kind": "glob",
+    "pattern": "errors/unreadable/*",
+    "kwargs": {},
+    "note": "chmod-000 dir. uid 0 (VERIFIED): readable, secret.txt listed. Non-root would PermissionError. Capture records uid - no policy fabricated."
+  },
+  {
+    "id": "e02",
+    "section": "8.6",
+    "kind": "glob",
+    "pattern": "errors/unreadable",
+    "kwargs": {},
+    "note": "literal 000 dir name: _lexists (lstat, no read perm needed) -> matched"
+  },
+  {
+    "id": "e03",
+    "section": "8.6",
+    "kind": "glob",
+    "pattern": "symlinks/broken",
+    "kwargs": {},
+    "note": "dangling symlink (§8.6 coverage): fixture is the only dangling link in the tree (symlinks/broken); errors/dangling absent from generate.py output. _lexists (lstat) -> matched regardless of target existence"
+  },
+  {
+    "id": "e04",
+    "section": "8.6",
+    "kind": "glob",
+    "pattern": "symlinks/broken*",
+    "kwargs": {},
+    "note": "wildcard matching the dangling symlink name (same fixture as e03)"
+  },
+  {
+    "id": "e05",
+    "section": "8.6",
+    "kind": "transient",
+    "pattern": "errors/_transient/*",
+    "kwargs": {},
+    "note": "disappearing file: worker creates errors/_transient/marker.txt, DELETES it, then globs -> empty list. Deterministic within one process; dir removed after."
+  },
+  {
+    "id": "e06",
+    "section": "8.6",
+    "kind": "glob",
+    "pattern": "errors/unreadable/secret.txt",
+    "kwargs": {},
+    "note": "literal file inside 000 dir: _lexists -> matched (uid 0)"
+  },
+  {
+    "id": "e07",
+    "section": "8.6",
+    "kind": "glob",
+    "pattern": "errors/*",
+    "kwargs": {},
+    "note": "error-tree top level: unreadable, dangling, visible.txt (+ _transient if leftover)"
+  },
+  {
+    "id": "e08",
+    "section": "8.6",
+    "kind": "glob",
+    "pattern": "errors/unreadable/**",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "recursive into 000 dir (uid 0: traverses; includes self entry)"
+  },
+  {
+    "id": "w01",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/*",
+    "kwargs": {},
+    "note": "all pathological names round-trip: space tab unicode emoji dash quotes metachars newline backslash raw-byte"
+  },
+  {
+    "id": "w02",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/with*space*",
+    "kwargs": {},
+    "note": "space in name via wildcard"
+  },
+  {
+    "id": "w03",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/\t*",
+    "kwargs": {},
+    "note": "literal TAB character as pattern prefix: only tab\\there.txt"
+  },
+  {
+    "id": "w04",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/üñíçødé*",
+    "kwargs": {},
+    "note": "unicode literal prefix"
+  },
+  {
+    "id": "w05",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/emoji*",
+    "kwargs": {},
+    "note": "4-byte unicode name prefix"
+  },
+  {
+    "id": "w06",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/-*",
+    "kwargs": {},
+    "note": "leading dash in name"
+  },
+  {
+    "id": "w07",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/single'*",
+    "kwargs": {},
+    "note": "single quote in name (literal, no escaping in glob)"
+  },
+  {
+    "id": "w08",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/double\"*",
+    "kwargs": {},
+    "note": "double quote in name"
+  },
+  {
+    "id": "w09",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/star\\*and\\?bracket\\[.txt",
+    "kwargs": {},
+    "note": "backslash is LITERAL on POSIX (OBSERVED 3.12.13, not an escape): pattern's backslashes do not exist in the name -> [] ; positive metachar match covered by w17"
+  },
+  {
+    "id": "w10",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/new\nline.txt",
+    "kwargs": {},
+    "note": "newline in pattern + name: exact literal match"
+  },
+  {
+    "id": "w11",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/glob**all.txt",
+    "kwargs": {},
+    "note": "literal ** in name, NON-recursive: ** behaves as two * (matches the literal name)"
+  },
+  {
+    "id": "w12",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/glob**all.txt",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "same pattern RECURSIVE: ** becomes directory recursion -> different result set (documented divergence between modes)"
+  },
+  {
+    "id": "w13",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/back\\slash*",
+    "kwargs": {},
+    "note": "literal backslash in name: pattern needs exactly ONE backslash on POSIX (OBSERVED: two -> [], one -> match; backslash is not an escape char)"
+  },
+  {
+    "id": "w14",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/raw*",
+    "kwargs": {},
+    "note": "name contains U+00FF (ü); generate.py writes it via the filesystem encoding -> valid UTF-8 on disk (OBSERVED). JSON carries \\u00ff; candidate must round-trip the exact code point"
+  },
+  {
+    "id": "w15",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/**",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "recursive over pathological names: all names preserved exactly"
+  },
+  {
+    "id": "w16",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/new*",
+    "kwargs": {},
+    "note": "prefix matching the newline name: new\\nline.txt (byte-accurate)"
+  },
+  {
+    "id": "w17",
+    "section": "8.7",
+    "kind": "glob",
+    "pattern": "weird/star*and?bracket*.txt",
+    "kwargs": {},
+    "note": "positive wildcard match over a metachar-laden name: star*and?bracket[.txt (OBSERVED n=1)"
+  },
+  {
+    "id": "k01",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "basic/*",
+    "kwargs": {
+      "root_dir": "basic"
+    },
+    "note": "root_dir=basic as STARTING POINT (OBSERVED 3.12.13): pattern 'basic/*' resolved inside basic/ -> no basic/basic/* -> expect []; results are relative to root_dir"
+  },
+  {
+    "id": "k02",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "recursive/**",
+    "kwargs": {
+      "root_dir": "recursive",
+      "recursive": true
+    },
+    "note": "root_dir=recursive as starting point + recursive: pattern 'recursive/**' inside recursive/ -> no match; relative results"
+  },
+  {
+    "id": "k03",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "*.txt",
+    "kwargs": {
+      "root_dir": "weird"
+    },
+    "note": "root_dir=weird as starting point: pattern '*.txt' -> all weird/*.txt relative to root_dir (pathological names)"
+  },
+  {
+    "id": "k04",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "basic/*",
+    "kwargs": {
+      "dir_fd": "basic"
+    },
+    "note": "dir_fd=os.open('basic'): pattern 'basic/*' resolved inside basic/ -> expect []; results relative to fd dir"
+  },
+  {
+    "id": "k05",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "recursive/**",
+    "kwargs": {
+      "dir_fd": "recursive",
+      "recursive": true
+    },
+    "note": "dir_fd=recursive + recursive: pattern 'recursive/**' inside recursive/ -> expect []"
+  },
+  {
+    "id": "k06",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "**/*",
+    "kwargs": {
+      "dir_fd": "a",
+      "recursive": true
+    },
+    "note": "dir_fd=a + recursive: pattern '**/*' from inside a/ -> files under a/ relative to fd dir"
+  },
+  {
+    "id": "k07",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "*.txt",
+    "kwargs": {
+      "dir_fd": "literal"
+    },
+    "note": "dir_fd=literal: pattern '*.txt' -> exact_name.txt only (sub/deep_target.txt excluded, no recursion) - VERIFIED"
+  },
+  {
+    "id": "k08",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "hidden/**",
+    "kwargs": {
+      "root_dir": "hidden",
+      "recursive": true,
+      "include_hidden": true
+    },
+    "note": "root_dir=hidden + recursive + include_hidden: pattern 'hidden/**' inside hidden/ -> expect []; relative results"
+  },
+  {
+    "id": "k09",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "basic/*",
+    "kwargs": {
+      "root_dir": "TREE"
+    },
+    "base": "b01",
+    "note": "root_dir=tree + relative pattern: multiset must equal base call b01 (OBSERVED: starting-point semantics)"
+  },
+  {
+    "id": "k10",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "basic/*",
+    "kwargs": {
+      "dir_fd": "TREE"
+    },
+    "base": "b01",
+    "note": "dir_fd=os.open(tree) + relative pattern: multiset must equal base call b01"
+  },
+  {
+    "id": "k11",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "hidden/**",
+    "kwargs": {
+      "root_dir": "TREE",
+      "recursive": true
+    },
+    "base": "h08",
+    "note": "root_dir=tree + hidden-recursive base h08: multiset must equal"
+  },
+  {
+    "id": "k12",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "hidden/**",
+    "kwargs": {
+      "dir_fd": "TREE",
+      "recursive": true
+    },
+    "base": "h08",
+    "note": "dir_fd=tree + hidden-recursive base h08: multiset must equal"
+  },
+  {
+    "id": "k13",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "recursive/**",
+    "kwargs": {
+      "root_dir": "TREE",
+      "recursive": true
+    },
+    "base": "r01",
+    "note": "root_dir=tree + ** base r01: multiset must equal"
+  },
+  {
+    "id": "k14",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "recursive/**",
+    "kwargs": {
+      "dir_fd": "TREE",
+      "recursive": true
+    },
+    "base": "r01",
+    "note": "dir_fd=tree + ** base r01: multiset must equal"
+  },
+  {
+    "id": "k15",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "symlinks/*",
+    "kwargs": {
+      "root_dir": "TREE"
+    },
+    "base": "s01",
+    "note": "root_dir=tree + symlink base s01: multiset must equal"
+  },
+  {
+    "id": "k16",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "symlinks/*",
+    "kwargs": {
+      "dir_fd": "TREE"
+    },
+    "base": "s01",
+    "note": "dir_fd=tree + symlink base s01: multiset must equal"
+  },
+  {
+    "id": "k17",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "weird/*",
+    "kwargs": {
+      "root_dir": "TREE"
+    },
+    "base": "w01",
+    "note": "root_dir=tree + weird base w01: multiset must equal (byte-accurate names)"
+  },
+  {
+    "id": "k18",
+    "section": "8.8",
+    "kind": "glob",
+    "pattern": "weird/*",
+    "kwargs": {
+      "dir_fd": "TREE"
+    },
+    "base": "w01",
+    "note": "dir_fd=tree + weird base w01: multiset must equal (byte-accurate names)"
+  },
+  {
+    "id": "x01",
+    "section": "8.9",
+    "kind": "escape",
+    "pattern": "*",
+    "kwargs": {},
+    "note": "glob.escape('*')"
+  },
+  {
+    "id": "x02",
+    "section": "8.9",
+    "kind": "escape",
+    "pattern": "?",
+    "kwargs": {},
+    "note": "glob.escape('?')"
+  },
+  {
+    "id": "x03",
+    "section": "8.9",
+    "kind": "escape",
+    "pattern": "[",
+    "kwargs": {},
+    "note": "glob.escape('[')"
+  },
+  {
+    "id": "x04",
+    "section": "8.9",
+    "kind": "escape",
+    "pattern": "a*b?c[d].txt",
+    "kwargs": {},
+    "note": "glob.escape over mixed metachars"
+  },
+  {
+    "id": "x05",
+    "section": "8.9",
+    "kind": "escape",
+    "pattern": "new\nline.txt",
+    "kwargs": {},
+    "note": "glob.escape with newline (no metachars: unchanged)"
+  },
+  {
+    "id": "x06",
+    "section": "8.9",
+    "kind": "escape",
+    "pattern": "**",
+    "kwargs": {},
+    "note": "glob.escape('**')"
+  },
+  {
+    "id": "x07",
+    "section": "8.9",
+    "kind": "escape",
+    "pattern": "üñíçødé",
+    "kwargs": {},
+    "note": "glob.escape unicode (no metachars: unchanged)"
+  },
+  {
+    "id": "x08",
+    "section": "8.9",
+    "kind": "escape",
+    "pattern": "back\\slash",
+    "kwargs": {},
+    "note": "glob.escape backslash (not a metachar in escape(): unchanged)"
+  },
+  {
+    "id": "x09",
+    "section": "8.9",
+    "kind": "escape",
+    "pattern": "weird/star*and?bracket[.txt",
+    "kwargs": {},
+    "note": "glob.escape over a full pathological name"
+  },
+  {
+    "id": "x10",
+    "section": "8.9",
+    "kind": "translate",
+    "pattern": "*",
+    "kwargs": {},
+    "note": "glob.translate('*') - NOT EXPOSED in Python 3.12.13 (added 3.13; VERIFIED via dir(glob)); capture records skipped_not_exposed"
+  },
+  {
+    "id": "x11",
+    "section": "8.9",
+    "kind": "translate",
+    "pattern": "a*b",
+    "kwargs": {},
+    "note": "glob.translate - not exposed in 3.12.13; skipped_not_exposed"
+  },
+  {
+    "id": "x12",
+    "section": "8.9",
+    "kind": "translate",
+    "pattern": "**",
+    "kwargs": {},
+    "note": "glob.translate - not exposed in 3.12.13; skipped_not_exposed"
+  },
+  {
+    "id": "x13",
+    "section": "8.9",
+    "kind": "translate",
+    "pattern": "[a-z]",
+    "kwargs": {},
+    "note": "glob.translate - not exposed in 3.12.13; skipped_not_exposed"
+  },
+  {
+    "id": "x14",
+    "section": "8.9",
+    "kind": "translate",
+    "pattern": "?",
+    "kwargs": {},
+    "note": "glob.translate - not exposed in 3.12.13; skipped_not_exposed"
+  },
+  {
+    "id": "x15",
+    "section": "8.9",
+    "kind": "translate",
+    "pattern": "a\\*b",
+    "kwargs": {},
+    "note": "glob.translate(escaped) - not exposed in 3.12.13; skipped_not_exposed"
+  },
+  {
+    "id": "x16",
+    "section": "8.9",
+    "kind": "escape",
+    "pattern": "basic/*.py",
+    "kwargs": {},
+    "note": "escape('*') metachar in basic pattern; glob(escaped) -> [] (no literal '*.py' file)"
+  },
+  {
+    "id": "x17",
+    "section": "8.9",
+    "kind": "escape",
+    "pattern": "basic/file.py",
+    "kwargs": {},
+    "note": "no metachars: escape identity; glob(escaped) -> [basic/file.py]"
+  }
+]

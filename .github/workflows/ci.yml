@@ -1,0 +1,90 @@
+name: ci
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+      - name: Install Python (pinned to the oracle version)
+        uses: actions/setup-python@v5
+        with:
+          # The compat freshness gate (tests/compat/compare.py, C15) requires
+          # the RUNNING interpreter to equal the capture's interpreter exactly
+          # (_meta.python == 3.12.13). An unpinned runner default (3.13.x)
+          # fails the gate; the oracle is this pinned stdlib glob.
+          python-version: "3.12.13"
+      - name: Format check
+        run: cargo fmt --check --manifest-path src/Cargo.toml
+      - name: Clippy (deny warnings, all targets)
+        run: cargo clippy --workspace --all-targets --manifest-path src/Cargo.toml -- -D warnings
+      - name: Build
+        run: make build
+      - name: Unit tests
+        run: cargo test --manifest-path src/Cargo.toml
+        # cargo-nextest is not preinstalled on ubuntu-latest; cargo test keeps
+        # the gate hermetic. Swap to `cargo nextest run` once installed.
+      - name: Docs (deny warnings)
+        run: cargo doc --workspace --no-deps --manifest-path src/Cargo.toml
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+      - name: cargo deny (when available)
+        run: |
+          if command -v cargo-deny >/dev/null 2>&1; then
+            (cd src && cargo deny check)
+          else
+            echo "cargo-deny not on runner PATH; G5 deferred (deny.toml committed at src/deny.toml)"
+          fi
+      - name: Oracle capture (uid-consistent for this runner)
+        run: make oracle-capture
+        # The committed oracle capture was recorded as uid 0; the fixture's
+        # 000-mode errors/unreadable directory (§8.6) is readable to root but
+        # not to the non-root runner user, so the manifest stamp and the
+        # unreadable-dir results are uid-dependent by design (no error policy
+        # is fabricated — docs/compatibility-contract.md §8.6). Re-capturing
+        # the oracle under the SAME user that runs the engine keeps the
+        # differential uid-consistent (VERIFIED non-root: 133/133).
+      - name: Compat suite (133 cases, multiset)
+        run: make compat
+      - name: Self-test oracle
+        run: python3 tests/compat/compare.py --self-test
+
+  # Python package quality gate (python-standards G1-G6) for python/.
+  # Single leg pinned to the oracle interpreter, same justification as the
+  # compat job: the 3.8-3.9 syntax floor is enforced by ruff's target-version
+  # py38 (FA102 flags PEP 585/604 missing the future import — measured),
+  # and mypy 2.x clamps targets below 3.10. A zero-dependency stdlib-only
+  # package earns floor evidence from tool targets, not interpreter legs.
+  python-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python (pinned to the oracle version)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.13"
+      - name: Install dev stack (editable, quality extras) + uv
+        run: pip install -e "python[dev]" uv
+      - name: Ruff lint (G1)
+        run: ruff check python/
+      - name: Ruff format check (G2)
+        run: ruff format --check python/
+      - name: Type check, mypy strict (G3)
+        run: cd python && mypy fastglob
+      - name: Tests + coverage (G4/G5)
+        run: cd python && python -m pytest ../tests/test_package.py --cov=fastglob --cov-report=term-missing
+      - name: Lockfile check (G6)
+        run: cd python && uv lock --check

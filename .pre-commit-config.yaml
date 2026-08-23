@@ -1,0 +1,33 @@
+# Fast Glob — pre-commit hooks (python-standards ci-patterns.md).
+# Install (mutates .git/hooks — run deliberately, not on CI):
+#   uvx pre-commit install
+# Python scope: ruff/mypy hooks target the Python package (python/); the
+# hygiene hooks (whitespace/yaml/size) run repo-wide.
+# The mypy hook needs --config-file because the [tool.mypy] config lives in
+# python/pyproject.toml, not at the repo root (ONE CONFIG FILE — no root
+# pyproject that claims the fastglob package).
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.13
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        files: ^python/
+      - id: ruff-format
+        files: ^python/
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.1.0
+    hooks:
+      - id: mypy
+        files: ^python/
+        args: [--config-file=python/pyproject.toml]
+        # stdlib-only package — no additional_dependencies needed.

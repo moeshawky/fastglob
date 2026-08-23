@@ -1,0 +1,7 @@
+# clippy lint configuration (rust-standards Phase 2) — shared by every
+# target in this workspace. Discovered by clippy walking up from each
+# source file / the workspace manifest.
+
+# Suggest fixes that do not break the public API (fastglob exposes a
+# compatibility-locked public surface — see docs/compatibility-contract.md).
+avoid-breaking-exported-api = true

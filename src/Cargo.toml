@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = ["fastglob"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.97"
+# crates.io publish metadata (rust-standards Phase 1).
+# TODO(operator): placeholder author — replace before a real `cargo publish`.
+license = "MIT"
+authors = ["fastglob maintainers <fastglob@example.com>"]
+description = "A single-pass, byte-exact pathname-globbing engine for Linux, compatibility-locked to the installed Python stdlib glob."
+# TODO(operator): currently a PRIVATE gogs (AGENTS.md RELEASE HYGIENE);
+# repoint to the public GitHub URL before publishing. Credentials are
+# deliberately omitted from this public metadata field.
+repository = "http://tunnel.prankh.libermoe.com:26003/moe/fastglob"
+# Workspace-root-relative: inherited paths re-express package-relative, so
+# this points at the repo-root README (one level above the workspace root).
+readme = "../README.md"
+keywords = ["glob", "fnmatch", "path", "filesystem", "python"]
+categories = ["filesystem"]
+
+[workspace.dependencies]
+libc = "0.2"
+
+[workspace.lints.rust]
+# unsafe_code cannot be denied: the engine is a libc-FFI port of CPython's
+# glob (openat/fstatat/fdopendir) — every unsafe block carries a SAFETY comment.
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
