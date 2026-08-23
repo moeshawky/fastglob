@@ -72,10 +72,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
       - name: Install Python (pinned to the oracle version)
         uses: actions/setup-python@v5
         with:
           python-version: "3.12.13"
+      - name: Build engine
+        run: make build
       - name: Install dev stack (editable, quality extras) + uv
         run: pip install -e "python[dev]" uv
       - name: Ruff lint (G1)
