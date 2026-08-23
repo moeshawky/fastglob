@@ -118,7 +118,7 @@ def glob(pathname: bytes, *, root_dir=None, dir_fd=None,
          recursive=False, include_hidden=False) -> List[bytes]: ...
 ```
 
-- **Mechanic:** Shells out per call to `$FASTGLOB_BIN` via `subprocess.run` with `--null` + `pass_fds` (`__init__.py:76-185`), `os.fsencode`/`fsdecode` surrogateescape, `F_DUPFD` atomic dup for `dir_fd`. Result TYPE follows the PATTERN type (Ct38): bytes pattern → raw bytes records (`_paths(as_bytes=True)`), str/PathLike → fsdecode'd str.
+- **Mechanic (0.1.1):** In-process call to the native engine module `fastglob._core` (PyO3, built by maturin from `src/fastglob` with `--features pyo3`; bindings in `src/fastglob/src/pyo3_ext.rs`) — no subprocess, no F_DUPFD/pass_fds; the caller's `dir_fd` is used in-process and never closed by the engine. `os.fsencode`/`fsdecode` surrogateescape in the shim. Result TYPE follows the PATTERN type (Ct38): bytes pattern → raw bytes records, str/PathLike → fsdecode'd str. Misuse verdicts mirror the CLI: embedded NUL → ValueError (stdlib parity); >8192 bytes or >512 components → RuntimeError "pattern too long"; `dir_fd` not an open directory → RuntimeError "fd is not a directory: N".
 - **Verified:** `PYTHONPATH=python python3 -c "import fastglob, glob; print(fastglob.glob('*') == glob.glob('*'))"` in `tests/fixtures/tree` → `Counter` equality via harness 133 cases; str-path behavior unchanged by the bytes work (Counter-equal vs stdlib, VERIFIED 2026-08-22).
 
 **Executable Example (from `README.md:36`):**

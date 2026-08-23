@@ -14,8 +14,15 @@
 //! Byte-exactness: everything is `&[u8]` / `Vec<u8>` end to end (OsStr on
 //! Unix). No lossy UTF-8 conversions anywhere on the hot path; the
 //! surrogateescape character model lives inside the matcher only.
+//!
+//! Python surface: built with `--features pyo3`, the crate additionally
+//! compiles the extension module `fastglob._core` (see `pyo3_ext`) — the
+//! in-process transport the `fastglob` Python package binds to (maturin,
+//! public/python).
 
 pub mod matcher;
+#[cfg(feature = "pyo3")]
+mod pyo3_ext;
 pub mod walk;
 
 use std::ffi::{OsStr, OsString};

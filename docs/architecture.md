@@ -86,13 +86,13 @@ _iglob -> _glob1 (filter via matcher) / _glob2 (recursive) -> _rlistdir (recurse
 
 **Verified:** `src/target/release/fastglob --help` → `Options:` 5 flags + `escape` (387KB)
 
-### 4. Python Wrapper (`python/fastglob/__init__.py:1-327`)
+### 4. Python Wrapper (`python/fastglob/__init__.py`)
 
-- **Never shadows stdlib:** Separate package `import fastglob` (`__init__.py:1-5`)
-- **Shell-out:** `_run` `subprocess.run([_bin().encode()]+args, pass_fds=(d,))` (`__init__.py:76-87`), `_bin()` (:45-52) via `$FASTGLOB_BIN` or `src/target/release/fastglob`
-- **Dir_fd:** `dup`+`F_DUPFD` atomic + `set_inheritable(True)` (`__init__.py:161-178`), `pass_fds` PEP 446
-- **Bytes:** `os.fsencode(x)`/`fsdecode` surrogateescape, NUL-split `_paths` with bytes-preservation (`__init__.py:60-107`; `_wants_bytes` mirrors CPython `isinstance(pathname, bytes)` typing)
-- **API:** `glob`/`iglob`/`escape` with `bytes|str|PathLike` overloads
+- **Never shadows stdlib:** Separate package `import fastglob`
+- **In-process engine (0.1.1):** `fastglob._core` PyO3 module (built by maturin from `src/fastglob` with `--features pyo3`; bindings in `src/fastglob/src/pyo3_ext.rs`) — one call, no per-call process spawn; misuse surfaces as ValueError/RuntimeError mirroring the CLI verdicts; the engine ships inside the wheel (`pip install fastglob` just works)
+- **Dir_fd:** passed in-process to the engine and never closed by it (the `dup`+`F_DUPFD`/`pass_fds` PEP 446 dance existed only for the removed child-process transport)
+- **Bytes:** `os.fsencode(x)`/`fsdecode` surrogateescape in the shim; raw byte records from the engine with bytes-preservation (`_wants_bytes` mirrors CPython `isinstance(pathname, bytes)` typing)
+- **API:** `glob`/`iglob`/`escape`/`has_magic` with `bytes|str|PathLike` overloads
 
 ---
 

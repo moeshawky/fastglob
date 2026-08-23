@@ -3,8 +3,9 @@
 
 Thin wrapper (W2 unification): all runner mechanics live in the shared
 module tests/compat/case_runner.py. This file binds them to the engine
-under test — the python/fastglob compat package, which shells out to the
-fastglob binary — and writes a candidate capture in the SAME schema as
+under test — the python/fastglob compat package, which calls the
+in-process native engine (fastglob._core) — and writes a candidate capture
+in the SAME schema as
 tests/oracle/capture.json, for consumption by tests/compat/compare.py:
 
     python3 tests/compat/run_engine.py --out tests/compat/candidate.json
@@ -18,8 +19,9 @@ exposed=False / skipped_not_exposed (compare.py rejects any claimed value
 when the oracle reports the same).
 
 _meta carries candidate provenance (candidate, candidate_version,
-candidate_bin) alongside the shared fields; record schema is identical to
-the oracle's (case_runner docstring) — compare.py consumes both.
+candidate_bin — the in-process engine module path since 0.1.1) alongside
+the shared fields; record schema is identical to the oracle's (case_runner
+docstring) — compare.py consumes both.
 """
 import json
 import os
@@ -73,7 +75,7 @@ def main():
         "_meta": True,
         "candidate": "fastglob",
         "candidate_version": fastglob.__version__,
-        "candidate_bin": fastglob._bin(),
+        "candidate_bin": f"in-process {getattr(fastglob._core, '__file__', 'fastglob._core')}",
         "python": sys.version.split()[0],
         "executable": sys.executable,
         "uid": os.getuid(),

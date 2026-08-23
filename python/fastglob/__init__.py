@@ -11,15 +11,13 @@ This is a SEPARATE package: it never shadows the stdlib ``glob`` module
 
 Documented mechanics (keep these in mind when using in hot loops):
 
-* Every call SHELLS OUT to the ``fastglob`` binary (one process per call).
-  The engine does all traversal/matching natively; this package only
-  marshals arguments and decodes NUL-delimited, byte-exact output.
-* The binary is located via ``$FASTGLOB_BIN`` if set, otherwise
-  ``<repo>/src/target/release/fastglob`` (build it with ``make build``).
-* ``dir_fd`` is passed to the child by dup()ing the fd with CLOEXEC
-  cleared and passing ``--dir-fd N`` plus ``pass_fds`` (PEP 446: fds from
-  ``os.open`` are close-on-exec and ``subprocess`` closes fds >= 3 in the
-  child unless listed in ``pass_fds``).
+* Every call runs IN-PROCESS against the native engine: the compiled module
+  ``fastglob._core`` (PyO3, built by maturin from the Rust engine — same
+  walk/matcher the CLI uses). No subprocess, no per-call process spawn.
+  ``pip install fastglob`` just works; the engine ships inside the package.
+* ``dir_fd`` is passed to the engine directly (same process) — the fd is
+  used in-place and never closed by the engine; there is no F_DUPFD or
+  pass_fds dance (that race window only existed for child processes).
 * Result TYPE follows the PATTERN type (stdlib parity — VERIFIED against
   CPython 3.12: ``glob.escape(b'a*b') == b'a[*]b'``, ``glob(b'*.py')``
   yields bytes elements; the reference branches on
@@ -28,33 +26,29 @@ Documented mechanics (keep these in mind when using in hot loops):
   filenames round-trip exactly; bytes patterns give raw bytes results —
   the engine output is already byte-exact, so bytes mode simply skips
   decoding (no lossy round-trip).
+* Misuse verdicts mirror the CLI (docs/compatibility-contract.md):
+  embedded NUL in pattern/root_dir -> ValueError (stdlib parity); pattern
+  > 8192 bytes or > 512 path components -> RuntimeError "pattern too
+  long"; dir_fd not an open directory -> RuntimeError "fd is not a
+  directory: {fd}".
 """
 
 from __future__ import annotations
 
-import fcntl
 import os
-import subprocess
-from pathlib import Path
 from typing import Iterator, cast, overload
 
-__all__ = ["escape", "glob", "iglob"]
+from . import _core
 
-__version__ = "0.1.0"
+__all__ = ["escape", "glob", "has_magic", "iglob"]
+
+__version__ = "0.1.1"
 
 # Filesystem path arguments: str, bytes, or a PathLike whose ``__fspath__``
 # returns str or bytes (stdlib parity — CPython glob accepts all three).
 # Bare ``os.PathLike`` would be ``os.PathLike[Any]`` (implicit Any), which
 # mypy --strict (disallow_any_generics) rejects.
 _PathArg = str | bytes | os.PathLike[str] | os.PathLike[bytes]
-
-
-def _bin() -> str:
-    b = os.environ.get("FASTGLOB_BIN")
-    if b:
-        return b
-    repo = Path(__file__).resolve().parent.parent.parent
-    return str(repo / "src" / "target" / "release" / "fastglob")
 
 
 def _fs(x: _PathArg) -> bytes:
@@ -78,39 +72,24 @@ def _wants_bytes(x: _PathArg) -> bool:
     return False
 
 
-def _run(args: list[bytes], pass_fds: tuple[int, ...] = ()) -> bytes:
-    p = subprocess.run(
-        [_bin().encode(), *args],
-        capture_output=True,
-        pass_fds=pass_fds,
-    )
-    if p.returncode != 0:
-        msg = p.stderr.decode("utf-8", "replace").strip()
-        raise RuntimeError(f"fastglob exited {p.returncode}: {msg}")
-    return p.stdout
-
-
-def _paths(out: bytes, *, as_bytes: bool = False) -> list[str] | list[bytes]:
-    """NUL-split byte-exact engine output into a result list.
+def _results(items: list[bytes], want_bytes: bool) -> list[str] | list[bytes]:
+    """Convert byte-exact engine records to the contract result type.
 
     Inputs:
-        out: raw engine stdout (records separated by NUL)
-        as_bytes: False (default) -> decode each record via ``os.fsdecode``
-            (surrogateescape), returning List[str]; True -> return the raw
-            records as List[bytes]. Used when the caller's pattern was
-            bytes so results preserve the input type (Ct38): no decoding,
-            no lossy round-trip.
+        items: raw engine records (byte-exact)
+        want_bytes: False (default) -> decode each record via
+            ``os.fsdecode`` (surrogateescape), returning List[str];
+            True -> return the raw records as List[bytes]. Used when the
+            caller's pattern was bytes so results preserve the input type
+            (Ct38): no decoding, no lossy round-trip.
     Output:
         List[str] or List[bytes] — one element per engine record
     Errors:
         None (pure split/decode)
     """
-    parts = out.split(b"\0")
-    if parts and parts[-1] == b"":
-        parts = parts[:-1]
-    if as_bytes:
-        return list(parts)
-    return [os.fsdecode(x) for x in parts]
+    if want_bytes:
+        return items
+    return [os.fsdecode(x) for x in items]
 
 
 def _call(
@@ -121,7 +100,7 @@ def _call(
     include_hidden: bool,
     as_bytes: bool = False,
 ) -> list[str] | list[bytes]:
-    """Execute the fastglob engine with the given pattern and options.
+    """Execute the in-process fastglob engine with the given pattern and options.
 
     Inputs:
         pathname: glob pattern as str/bytes/PathLike. The RESULT type follows
@@ -137,56 +116,30 @@ def _call(
         Matching pathnames as List[str] or List[bytes], duplicates preserved,
         order unspecified
     Errors:
-        RuntimeError if the engine exits non-zero (misuse -> exit 2)
-        TypeError/ValueError if pathname/root_dir is not str/bytes/PathLike,
-            or dir_fd is not a valid open int fd
+        RuntimeError if the engine reports a misuse (pattern too long,
+            dir_fd not an open directory)
+        TypeError if dir_fd is not a valid int
+        ValueError if pathname/root_dir is not str/bytes/PathLike (via
+            fsencode), if dir_fd is negative or not a valid open fd, or if
+            pattern/root_dir contains an embedded NUL
     """
     want_bytes = _wants_bytes(pathname)
-    args: list[bytes] = []
-    if recursive:
-        args.append(b"--recursive")
-    if include_hidden:
-        args.append(b"--include-hidden")
-    if root_dir is not None:
-        args += [b"--root-dir", _fs(root_dir)]
-    args += [b"--null", b"--", _fs(pathname)]
-
     if dir_fd is not None:
         # Validate dir_fd type and value before use (Level A contract).
         if not isinstance(dir_fd, int):
             raise TypeError(f"dir_fd must be int, got {type(dir_fd).__name__}")
         if dir_fd < 0:
             raise ValueError(f"dir_fd must be non-negative, got {dir_fd}")
-        # Validate that dir_fd is an open directory fd (fstat).
+        # Validate that dir_fd is an open fd (fstat). Directory-ness is
+        # re-checked in-process by the engine (RuntimeError there).
         try:
             os.fstat(dir_fd)
         except OSError as e:
             raise ValueError(f"dir_fd {dir_fd} is not a valid open fd: {e}") from e
-        # Atomic inheritable dup: prefer F_DUPFD (CLOEXEC cleared) which is
-        # atomic; fallback to dup()+set_inheritable which is two syscalls but
-        # uses the Python-level atomic helper (PEP 446). The old dup()+fcntl
-        # F_SETFD clearing was non-atomic (race window between dup and fcntl).
-        try:
-            # Use F_DUPFD to atomically dup with CLOEXEC cleared (new fd >=3).
-            d = fcntl.fcntl(dir_fd, fcntl.F_DUPFD, 3)
-            # Ensure inheritable (CLOEXEC cleared) — F_DUPFD already clears,
-            # but explicitly set for portability.
-            os.set_inheritable(d, True)
-        except (OSError, AttributeError):
-            d = os.dup(dir_fd)
-            try:
-                os.set_inheritable(d, True)
-            except OSError:
-                os.close(d)
-                raise
-        try:
-            args += [b"--dir-fd", str(d).encode()]
-            out = _run(args, pass_fds=(d,))
-        finally:
-            os.close(d)
-    else:
-        out = _run(args)
-    return _paths(out, as_bytes=want_bytes)
+    pattern = _fs(pathname)
+    root = _fs(root_dir) if root_dir is not None else None
+    items = _core.glob(pattern, root, dir_fd, recursive, include_hidden)
+    return _results(items, want_bytes)
 
 
 @overload
@@ -288,7 +241,7 @@ def iglob(
     recursive: bool = False,
     include_hidden: bool = False,
 ) -> Iterator[str] | Iterator[bytes]:
-    """Yield paths matching ``pathname`` (one binary call per iglob).
+    """Yield paths matching ``pathname`` (one in-process engine call per iglob).
 
     Same type contract as ``glob``: str/PathLike pattern yields str items,
     bytes pattern yields bytes items (stdlib parity, VERIFIED on CPython
@@ -299,7 +252,7 @@ def iglob(
 
     Inputs: same as ``glob``.
     Output: Iterator[str] or Iterator[bytes] — lazily yields each match
-    (materialized via one engine call)
+    (materialized via one in-process engine call)
     Errors: same as ``glob``
     """
     items = _call(
@@ -340,8 +293,24 @@ def escape(pathname: _PathArg) -> str | bytes:
     results are returned raw (no lossy round-trip); str results are decoded
     via fsdecode (surrogateescape).
     """
-    out = _run([b"escape", b"--null", b"--", _fs(pathname)])
-    first = out.split(b"\0")[0]
+    out = _core.escape(_fs(pathname))
     if _wants_bytes(pathname):
-        return first
-    return os.fsdecode(first)
+        return out
+    return os.fsdecode(out)
+
+
+def has_magic(pathname: _PathArg) -> bool:
+    """Return True if ``pathname`` contains any glob magic (``*``, ``?``, ``[``).
+
+    Port of the stdlib's internal ``glob.has_magic`` — a pure pattern scan,
+    no filesystem access. Accepts str/bytes/PathLike (fsencoded before the
+    engine scan); returns a plain bool.
+
+    Inputs:
+        pathname: pattern (str/bytes/PathLike)
+    Output:
+        bool — True when the pattern contains ``*``, ``?``, or ``[``
+    Errors:
+        TypeError if pathname is not str/bytes/PathLike (via fsencode)
+    """
+    return _core.has_magic(_fs(pathname))

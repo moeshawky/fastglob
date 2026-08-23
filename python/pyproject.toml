@@ -1,15 +1,22 @@
 # Packaging metadata for the `fastglob` Python package (repo layout: python/fastglob/).
 # Exists so that the documented command `pip install -e python` (README.md, docs/api.md)
-# actually succeeds — PEP 517/660 editable installs require build metadata.
+# actually succeeds — PEP 517/660 installs require build metadata.
 #
 # MAINTENANCE CONTRACT:
 # - `version` MUST stay exactly equal to __version__ in python/fastglob/__init__.py
 #   (single source of truth is __init__.py; update both together or wire dynamic
-#   metadata later — do NOT let them drift).
-# - Build backend: hatchling (2026 stack, measured 2026-08-23 via `uv build`
-#   probe: wheel contains exactly fastglob/__init__.py + fastglob/py.typed +
-#   dist-info; PEP 660 editable verified). Do NOT add a second top-level
-#   directory under python/ without re-verifying the wheel file list.
+#   metadata later — do NOT let them drift) and to the workspace version in
+#   src/Cargo.toml (maturin cross-checks Cargo.toml against [project]).
+# - Build backend: maturin (2026-08-23, 0.1.1): the engine ships IN-PACKAGE
+#   as the compiled extension `fastglob/_core.<abi>.so` (PyO3 abi3-py38,
+#   built from ../src/fastglob with feature `pyo3`). The wheel contains
+#   fastglob/__init__.py + _core.pyi + py.typed + _core.abi3.so + dist-info;
+#   `pip install fastglob` just works — no separate engine build, no
+#   subprocess. The sdist carries the full Rust crate so it compiles on any
+#   Linux arch with a Rust toolchain (amd64 + arm64 verified source-level;
+#   manylinux wheels via `maturin build --release --manylinux 2_28`).
+#   Do NOT add a second top-level directory under python/ without
+#   re-verifying the wheel file list.
 # - Deliberately minimal per assignment W4: no entry-points. Identity fields
 #   the operator has not specified (authors/maintainers, copyright holder)
 #   mirror the Rust pass placeholders (src/Cargo.toml, LICENSE TODO) —
@@ -20,28 +27,20 @@
 #   package — it would shadow this file.
 
 [build-system]
-requires = ["hatchling>=1.26"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
 
-[tool.hatch.build]
-# Dev tooling artifacts — never ship in the distribution (measured 2026-08-23:
-# uv.lock/.python-version and the tools' own cache dirs leaked into the first
-# sdist; excluded here). Note: hatchling's VCS-aware sdist also carries the
-# repo-root .gitignore into the sdist root — harmless at install time and
-# not removable via `exclude` (measured), so it is accepted, not fought.
-exclude = [
-    ".python-version",
-    "uv.lock",
-    ".coverage",
-    ".ruff_cache",
-    ".mypy_cache",
-]
+[tool.maturin]
+bindings = "pyo3"
+module-name = "fastglob._core"
+manifest-path = "../src/fastglob/Cargo.toml"
+features = ["pyo3"]
 
 [project]
 name = "fastglob"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python compatibility wrapper around the fastglob engine"
-# TODO (operator): add a per-package README (hatchling requires the readme
+# TODO (operator): add a per-package README (maturin requires the readme
 # inside python/, so the repo-root README.md cannot be referenced directly).
 # Until then the wheel carries the one-line description; the repo README
 # documents this package fully.
@@ -61,7 +60,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "Topic :: Utilities",
 ]
-dependencies = [] # stdlib only — the engine is a subprocess, not a dependency
+dependencies = [] # stdlib only — the engine is an in-process native module, not a dependency
 
 [project.optional-dependencies]
 # `pip install -e "python[dev]"` — the quality-gate stack (G1-G6).
@@ -103,13 +102,6 @@ select = [
 ]
 ignore = ["E501"] # line length is the formatter's job
 
-[tool.ruff.lint.per-file-ignores]
-# The package's documented mechanic is to shell out to the fastglob binary
-# (no shell involved; executable = $FASTGLOB_BIN or the repo-relative release
-# path; arguments are fsencoded bytes). S603 is a manual-review nudge, not a
-# defect, for this call.
-"fastglob/__init__.py" = ["S603"]
-
 [tool.ruff.format]
 quote-style = "double"
 
@@ -120,6 +112,7 @@ strict = true
 # "not supported (must be 3.10 or higher)" and clamps). The 3.8-3.9 syntax
 # floor is enforced by ruff's FA/UP rules at target-version py38 (measured:
 # FA102 flags PEP 585/604 annotations missing the future import).
+# The native module is typed by fastglob/_core.pyi (byte-exact surface).
 python_version = "3.10"
 
 # ── pytest ────────────────────────────────────────────────────────────────

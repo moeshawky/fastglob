@@ -1,8 +1,9 @@
 """Z1 family E — fastglob PACKAGE-level adversarial tests (closes TP46).
 
 Scope: python/fastglob/__init__.py public surface — ``glob``, ``iglob``,
-``escape`` — driven against the real engine binary exactly the way the
-compatibility harness drives it (subprocess + --null + pass_fds).
+``escape``, ``has_magic`` — driven against the real in-process engine
+(``fastglob._core``, PyO3) exactly the way the compatibility harness drives
+it.
 
 Assertion discipline (Z1): behavioral depth only — full Counter multisets
 with multiplicity (AGENTS.md iron law), per-element TYPE assertions for the
@@ -10,25 +11,26 @@ str/bytes contract (Ct38), exact values for escape(), and iterator-type
 assertions for iglob(). Never "isinstance(result, list)" alone.
 
 Real fault injection where the platform allows (no mocks):
-* NUL in pattern        -> ValueError raised by subprocess arg marshalling;
+* NUL in pattern        -> ValueError from the engine's NUL guard (stdlib
+                            parity);
 * dir_fd < 0            -> ValueError from the package guard;
 * dir_fd wrong type     -> TypeError from the package guard;
 * CLOSED fd             -> ValueError from the fstat guard (fd opened then
-                           closed for real);
-* OPEN REGULAR-FILE fd  -> passes the package's fstat check, gets dup'd via
-                           F_DUPFD, handed to the engine through pass_fds,
-                           engine exits 2 -> RuntimeError("... fd is not a
-                           directory ...") — a full end-to-end chain test of
-                           the misuse path;
+                            closed for real);
+* OPEN REGULAR-FILE fd  -> passes the package's fstat check, is passed
+                            in-process to the engine, which rejects it ->
+                            RuntimeError("... fd is not a directory ...") — a
+                            full end-to-end chain test of the misuse path;
 * pattern > 8192 bytes / > 512 components -> engine exit 2 ->
                            RuntimeError("fastglob exited 2: ... pattern too
                            long") — exercises the length guards through the
                            whole stack.
 
 Run wiring: `make test` executes this file after `make build` + compat (the
-binary must exist; a missing binary FAILS LOUDLY in setUpModule rather than
-silently skipping). Standalone: PYTHONPATH-independent — this file inserts
-<repo>/python onto sys.path itself.
+in-process engine module must be importable; a missing ``fastglob._core``
+FAILS LOUDLY in setUpModule rather than silently skipping — build it with
+`pip install -e python`, which compiles the extension in-place). Standalone:
+PYTHONPATH-independent — this file inserts <repo>/python onto sys.path itself.
 """
 
 import os
@@ -48,10 +50,11 @@ import fastglob  # noqa: E402  (path set above)
 
 
 def setUpModule():
-    """Fail loudly if the engine binary has not been built (no silent skips)."""
-    if not os.path.exists(fastglob._bin()):
+    """Fail loudly if the in-process engine module is unavailable (no silent skips)."""
+    if not hasattr(fastglob._core, "glob"):
         raise RuntimeError(
-            f"fastglob binary missing at {fastglob._bin()} — run `make build` first"
+            "fastglob._core not importable or incomplete — "
+            "install the package (`pip install -e python`)"
         )
 
 
@@ -207,12 +210,14 @@ class DirFdContract(TreeFixture):
 
 
 class MisuseThroughEngine(TreeFixture):
-    """Engine-side guards surfaced as RuntimeError through _run()."""
+    """Engine-side guards surfaced as RuntimeError through the in-process core."""
 
     def assert_engine_misuse(self, pattern, **kwargs):
+        # In-process transport: the engine reports misuse as a RuntimeError
+        # directly (no "exited 2" subprocess wording); each test below
+        # asserts the specific engine verdict text.
         with self.assertRaises(RuntimeError) as ctx:
             fastglob.glob(pattern, **kwargs)
-        self.assertIn("exited 2", str(ctx.exception))
         return ctx.exception
 
     def test_pattern_over_8192_bytes_runtime_error(self):
@@ -223,10 +228,10 @@ class MisuseThroughEngine(TreeFixture):
         err = self.assert_engine_misuse("/".join(["a"] * 600), root_dir=self.root)
         self.assertIn("pattern too long", str(err))
 
-    def test_nul_in_pattern_raises_valueerror_before_spawn(self):
-        # subprocess arg marshalling rejects embedded NULs for real; this is
-        # also the user-visible twin of main.rs's defense-in-depth NUL guards
-        # (unreachable via execve argv — see cli_misuse.rs coverage map).
+    def test_nul_in_pattern_raises_valueerror_before_walk(self):
+        # the in-process engine guard rejects embedded NULs for real (stdlib
+        # ValueError parity); main.rs carries the same defense-in-depth NUL
+        # guard for the CLI (see cli_misuse.rs coverage map).
         with self.assertRaises(ValueError):
             fastglob.glob("a\0b")
 

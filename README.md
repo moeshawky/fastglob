@@ -39,7 +39,7 @@ make build
 
 ### Step 3: Run Python API
 ```bash
-pip install -e python   # or, without pip: skip and use the PYTHONPATH fallback below
+pip install -e python   # builds the in-process engine (maturin + Rust toolchain); PyPI wheel needs neither
 python3 <<'PY'
 import fastglob
 print(fastglob.glob("*.py"))  # [] in empty dir, or ['file.py'] if file exists
@@ -49,7 +49,7 @@ PY
 # No-install fallback (instead of the line above):
 #   PYTHONPATH=python python3 -c 'import fastglob; print(fastglob.escape("a*b"))'
 ```
-**Source:** `python/fastglob/__init__.py:189-327` (`glob`/`iglob`/`escape`), `__init__.py:45-52` (`_bin()` via `$FASTGLOB_BIN`)
+**Source:** `python/fastglob/__init__.py` (`glob`/`iglob`/`escape`/`has_magic` over the in-process `fastglob._core` native engine)
 
 ### Step 4: Run tests
 ```bash
@@ -85,12 +85,13 @@ Ordering is documented-unspecified: tests compare `Counter` multisets, never ord
 ## Installation
 
 ```bash
-make build   # cargo build --release -> src/target/release/fastglob, 387KB
+make build   # cargo build --release -> src/target/release/fastglob, 387KB (only for source-dev / direct CLI use)
 ```
 
 Python package (separate, never shadows stdlib `glob`):
 ```bash
-pip install -e python   # or: PYTHONPATH=python python3 -c 'import fastglob'
+pip install fastglob    # PyPI: engine ships inside the wheel — just works, no make build
+pip install -e python   # source dev: compiles the in-process engine via maturin (or: PYTHONPATH=python)
 ```
 
 ```python
@@ -100,8 +101,8 @@ list(fastglob.iglob("a/**/b.txt", recursive=True))
 fastglob.escape("a*b")  # -> "a[*]b"
 ```
 
-Binary via `$FASTGLOB_BIN` or default `src/target/release/fastglob`.
-**Source:** `python/fastglob/__init__.py:45-52` (`_bin()`), `__init__.py:76-87` (`_run` subprocess with `pass_fds`)
+The engine runs in-process through `fastglob._core` (PyO3 module built from the same Rust crate); since 0.1.1 the package no longer reads `FASTGLOB_BIN` and spawns no subprocess. The `fastglob` CLI binary remains available for direct use.
+**Source:** `python/fastglob/__init__.py` (`_core` in-process calls), `src/fastglob/src/pyo3_ext.rs` (engine bindings)
 
 ## CLI
 

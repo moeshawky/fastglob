@@ -45,6 +45,10 @@ bench/results/*.md
 # Rust build artifacts
 src/target/
 
+# In-place PyO3 extension from `pip install -e python/` (build artifact,
+# rebuilt by maturin; never a source file)
+python/fastglob/*.so
+
 # Misc
 .DS_Store
 *.swp

@@ -14,13 +14,26 @@ categories.workspace = true
 [lib]
 name = "fastglob"
 path = "src/lib.rs"
+# cdylib: the PyO3 extension (feature `pyo3`, module `fastglob._core`) is
+# built from THIS crate by maturin (public/python pyproject, module-name
+# fastglob._core). rlib: the CLI binary and the unit/integration tests link
+# the crate the usual way. Without the feature, the cdylib is an empty shell
+# (all PyO3 items are cfg-gated) and costs one extra link step.
+crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "fastglob"
 path = "src/main.rs"
 
+[features]
+# `pyo3` turns the crate into a Python extension (maturin builds it with
+# `--features pyo3`). Off by default: `cargo build`/`cargo test` produce the
+# plain CLI + library with no Python dependency.
+pyo3 = ["dep:pyo3"]
+
 [dependencies]
 libc.workspace = true
+pyo3 = { version = "0.26", optional = true, features = ["abi3-py38", "extension-module"] }
 
 [lints]
 workspace = true

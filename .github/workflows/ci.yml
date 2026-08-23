@@ -30,11 +30,13 @@ jobs:
       - name: Format check
         run: cargo fmt --check --manifest-path src/Cargo.toml
       - name: Clippy (deny warnings, all targets)
-        run: cargo clippy --workspace --all-targets --manifest-path src/Cargo.toml -- -D warnings
+        # --all-features compiles the pyo3 extension module (fastglob._core)
+        # so the in-process bindings carry the same lint gate as the engine.
+        run: cargo clippy --workspace --all-targets --all-features --manifest-path src/Cargo.toml -- -D warnings
       - name: Build
         run: make build
       - name: Unit tests
-        run: cargo test --manifest-path src/Cargo.toml
+        run: cargo test --all-features --manifest-path src/Cargo.toml
         # cargo-nextest is not preinstalled on ubuntu-latest; cargo test keeps
         # the gate hermetic. Swap to `cargo nextest run` once installed.
       - name: Docs (deny warnings)
