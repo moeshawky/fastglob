@@ -42,7 +42,7 @@ from . import _core
 
 __all__ = ["escape", "glob", "has_magic", "iglob"]
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 # Filesystem path arguments: str, bytes, or a PathLike whose ``__fspath__``
 # returns str or bytes (stdlib parity — CPython glob accepts all three).

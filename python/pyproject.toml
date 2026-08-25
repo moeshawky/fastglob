@@ -7,7 +7,7 @@
 #   (single source of truth is __init__.py; update both together or wire dynamic
 #   metadata later — do NOT let them drift) and to the workspace version in
 #   src/Cargo.toml (maturin cross-checks Cargo.toml against [project]).
-# - Build backend: maturin (2026-08-23, 0.1.1): the engine ships IN-PACKAGE
+# - Build backend: maturin (2026-08-23, 0.1.2): the engine ships IN-PACKAGE
 #   as the compiled extension `fastglob/_core.<abi>.so` (PyO3 abi3-py38,
 #   built from ../src/fastglob with feature `pyo3`). The wheel contains
 #   fastglob/__init__.py + _core.pyi + py.typed + _core.abi3.so + dist-info;
@@ -38,7 +38,7 @@ features = ["pyo3"]
 
 [project]
 name = "fastglob"
-version = "0.1.1"
+version = "0.1.2"
 description = "Python compatibility wrapper around the fastglob engine"
 # TODO (operator): add a per-package README (maturin requires the readme
 # inside python/, so the repo-root README.md cannot be referenced directly).

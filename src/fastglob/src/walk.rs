@@ -67,6 +67,12 @@ fn iglob_collect(
     opts: Opts,
     out: &mut Vec<Vec<u8>>,
 ) {
+    // Fused fast paths (hot pattern families): single-pass traversal with
+    // byte-identical result multisets. `None` -> verbatim port below.
+    if let Some(res) = try_fast(pattern, root, dir_fd, opts) {
+        out.extend(res);
+        return;
+    }
     let mut inner = _iglob(pattern, root, dir_fd, opts, false);
     if (pattern.is_empty() || (opts.recursive && pattern.len() >= 2 && &pattern[0..2] == b"**"))
         && inner.first().is_some_and(|s| s.is_empty())
@@ -522,6 +528,850 @@ fn rlistdir(dir_fd: Option<i32>, dirname: &[u8], dironly: bool, opts: Opts) -> V
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// Fused fast paths — single-pass traversal for the hot pattern families
+// ---------------------------------------------------------------------------
+
+/// Fused fast-path dispatcher. Returns `Some(results)` when `pattern` has an
+/// authorized shape and the fused walk fully executed it; `None` means "run
+/// the verbatim port" (every shape not listed below falls back).
+///
+/// Accepted shapes (byte-identical result MULTISETS to the legacy pipeline):
+///
+/// * (a) no `**`, exactly one component, containing magic (`*`, `*.dat`):
+///   one listing of the root with `_glob1` filter semantics; `*`
+///   short-circuits without matcher decode.
+/// * (b) exactly one `**` component plus ONE trailing segment, magic or
+///   literal (`**/*.py`, `/abs/dir/**/*.py`): one fused depth-first walk —
+///   each visited directory is listed ONCE; entries are suffix-tested
+///   (`_glob1` hidden rule) while visible subdirs are pushed for recursion
+///   (`_rlistdir` hidden rule). Eliminates the legacy second full scan of
+///   every directory yielded by `_glob2`.
+/// * (c) exactly one `**` component plus TWO literal segments
+///   (`**/b/m.py`): the same fused walk; at each visited directory the
+///   joined suffix path is `_lexists`-checked (`_glob0` semantics — no
+///   hidden filtering on literal components).
+///
+/// Fallbacks (`None`): any `dir_fd`; patterns containing `//`; zero or more
+/// than one `**` components; `**` as the whole pattern; non-recursive
+/// patterns containing `**`; magic in a two-segment suffix;
+/// trailing-slash / empty-segment shapes. A LEADING `/` is accepted: the
+/// raw prefix slice carries it byte-exact through `fj`/`p_join`/emission,
+/// exactly like the legacy pipeline's dirs elements.
+///
+/// Inputs:
+///   pattern: `&[u8]` — glob pattern bytes (length guards already applied)
+///   root: `&[u8]` — filesystem origin shift (empty = cwd)
+///   dir_fd: `Option<i32>` — always `None` here (fd shapes fall back)
+///   opts: `Opts` — recursive/include_hidden flags
+/// Output: `Option<Vec<Vec<u8>>>` — full result list (duplicates preserved,
+/// order unspecified) or `None` to request the legacy pipeline
+/// Errors: never panics; filesystem errors prune exactly like the legacy
+/// port (open failure -> branch pruned; mid-iteration error -> stop and
+/// keep the partial listing)
+fn try_fast(
+    pattern: &[u8],
+    root: &[u8],
+    dir_fd: Option<i32>,
+    opts: Opts,
+) -> Option<Vec<Vec<u8>>> {
+    if dir_fd.is_some() {
+        return None;
+    }
+    let mut prev_slash = false;
+    for &b in pattern {
+        if b == b'/' && prev_slash {
+            return None; // "//" anywhere: posix-split quirks, legacy path
+        }
+        prev_slash = b == b'/';
+    }
+    // Component spans (start, end); the last component may be empty when the
+    // pattern ends with '/', which the shape checks below reject.
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    let mut s = 0usize;
+    for i in 0..pattern.len() {
+        if pattern[i] == b'/' {
+            spans.push((s, i));
+            s = i + 1;
+        }
+    }
+    spans.push((s, pattern.len()));
+    let is_ss = |sp: (usize, usize)| -> bool { &pattern[sp.0..sp.1] == b"**" };
+    let ss_count = spans.iter().copied().filter(|&sp| is_ss(sp)).count();
+    if ss_count == 0 {
+        // Case (a): a single component carrying magic.
+        if spans.len() != 1 || !matcher::has_magic(&pattern[spans[0].0..spans[0].1]) {
+            return None;
+        }
+        return Some(fast_single_component(root, pattern, opts));
+    }
+    if !opts.recursive || ss_count > 1 || spans.len() < 2 {
+        return None; // '**' alone, degraded '**', or multiple '**'
+    }
+    let k = spans.iter().position(|&sp| is_ss(sp))?;
+    // Raw prefix slice up to the '**' span start: "" or e.g. "src/" — this
+    // IS the legacy dirs-element string (p_join(prefix_component, "")).
+    let prefix = &pattern[..spans[k].0];
+    let rest = &spans[k + 1..];
+    match rest.len() {
+        1 => {
+            let sp = rest[0];
+            if sp.0 == sp.1 {
+                return None; // trailing slash: directory-only semantics
+            }
+            let suffix = &pattern[sp.0..sp.1];
+            if suffix == b"." || suffix == b".." {
+                // Self/parent lookups are _glob0 lexists territory (no
+                // readdir entry ever bears these names).
+                return None;
+            }
+            Some(fast_walk_suffix(prefix, suffix, root, opts))
+        }
+        2 => {
+            let sp1 = rest[0];
+            let sp2 = rest[1];
+            if sp1.0 == sp1.1 || sp2.0 == sp2.1 {
+                return None;
+            }
+            let seg1 = &pattern[sp1.0..sp1.1];
+            let seg2 = &pattern[sp2.0..sp2.1];
+            if matcher::has_magic(seg1) || matcher::has_magic(seg2) {
+                return None; // magic beyond the single '**': legacy path
+            }
+            if seg1 == b"." || seg1 == b".." {
+                // Name-scanning cannot see "."/".." entries (readdir hides
+                // them); the legacy two-stage pipeline resolves them via
+                // path lookup, so fall back.
+                return None;
+            }
+            Some(fast_walk_literal2(prefix, seg1, seg2, root, opts))
+        }
+        _ => None,
+    }
+}
+
+/// Filesystem scan origin: `fj(root, rel)` mapped to "." when both are empty
+/// (the legacy `listdir` mapping of an empty dirname).
+fn fast_scan_path(root: &[u8], rel: &[u8]) -> Vec<u8> {
+    let j = fj(root, rel);
+    if j.is_empty() {
+        b".".to_vec()
+    } else {
+        j
+    }
+}
+
+/// Case (a): `_glob1(root, pat)` in one listing. Hidden rule per `_glob1`:
+/// dot-names dropped iff `!include_hidden` and the pattern is not itself
+/// dot-prefixed. `*` matches without matcher decode.
+///
+/// Input: `root: &[u8]`, `pat: &[u8]` (single magic component), `opts`
+/// Output: `Vec<Vec<u8>>` — matching names (bare, as p_join("", name))
+/// Errors: open failure -> empty; mid-read error -> partial listing
+fn fast_single_component(root: &[u8], pat: &[u8], opts: Opts) -> Vec<Vec<u8>> {
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    let scan_at = fast_scan_path(root, b"");
+    let rd = match std::fs::read_dir(std::ffi::OsStr::from_bytes(&scan_at)) {
+        Ok(rd) => rd,
+        Err(_) => return out,
+    };
+    let star = pat == b"*";
+    let prog = if star { None } else { Some(matcher::compile(pat)) };
+    let skip_hidden = !opts.include_hidden && !is_hidden(pat);
+    for ent in rd {
+        let en = match ent {
+            Ok(en) => en,
+            Err(_) => break, // CPython outer `except OSError: return`
+        };
+        let nb = en.file_name();
+        let b = nb.as_bytes();
+        if skip_hidden && is_hidden(b) {
+            continue;
+        }
+        let hit = match &prog {
+            None => true,
+            Some(p) => matcher::matches(p, b),
+        };
+        if hit {
+            out.push(b.to_vec());
+        }
+    }
+    out
+}
+
+/// Case (b)/(c) shared fd-DFS machinery. Dir-ness is proven BY the same
+/// syscall that produces the listing (`openat(O_RDONLY|O_DIRECTORY)`,
+/// following symlinks — exactly the observable of the legacy
+/// is_dir()-follow + scandir pair, including ELOOP pruning of cycles and
+/// EACCES/ENOENT pruning of unreadable/vanished branches). Names are
+/// borrowed from readdir (zero allocation until a decision allocates);
+/// getdents64 batches mean most iterations touch no syscall at all.
+/// File descriptors are held ONLY along the active DFS chain (one per
+/// level); past [`FAST_MAX_FD_DEPTH`] levels the subtree falls back to the
+/// path-based walker (identical semantics, slower) so EMFILE can never
+/// silently prune a deep-but-legitimate tree.
+
+/// Depth beyond which fused walks switch a subtree to the path-based
+/// fallback walker (bounds simultaneously-held directory fds).
+const FAST_MAX_FD_DEPTH: usize = 256;
+
+/// Upper bound on worker threads fanning out the fused walks. Held
+/// directory fds are bounded by `FAST_MAX_THREADS * FAST_MAX_FD_DEPTH`
+/// chains, far under any realistic RLIMIT_NOFILE.
+const FAST_MAX_THREADS: usize = 12;
+
+/// Minimum leaf count the frontier collector aims for before handing the
+/// walk to the thread pool (>= 4x the thread cap keeps chunks balanced).
+const FAST_FANOUT_WIDTH: usize = 64;
+
+/// Depth cap for frontier collection. Beyond this, directories are handed
+/// to workers unexpanded: their own `open` then hits the kernel ELOOP /
+/// path limits and prunes exactly like the legacy recursion did.
+const FAST_MAX_COLLECT_DEPTH: usize = 40;
+
+/// Plausibly-descendable dirent type: DT_DIR is certain; DT_LNK may resolve
+/// to a directory (openat follows it); DT_UNKNOWN forces the probe. Every
+/// other type (reg/fifo/sock/chr/blk) can never be a directory — skipping
+/// the probe for them is observable-equivalent to the legacy mode check
+/// (`fd_entry_is_dir`'s `_ => false` arm) without the syscall.
+fn dt_may_be_dir(d_type: u8) -> bool {
+    matches!(
+        d_type,
+        libc::DT_DIR | libc::DT_LNK | libc::DT_UNKNOWN
+    )
+}
+
+/// Grow a balanced frontier of subtree locations from the seed directory.
+///
+/// Breadth-first expansion (one listing per expanded directory — the same
+/// single-listing discipline as the walk itself) until [`FAST_FANOUT_WIDTH`]
+/// DIRECTORIES have been confirmed-and-expanded or the collection depth cap
+/// is reached. An `openat(O_DIRECTORY)` success is what confirms dir-ness:
+/// once the width budget is spent, further confirmed directories are closed
+/// UNREAD and become distribution leaves (the workers re-open them), so the
+/// bulk of any wide tree is walked in parallel instead of serially here.
+/// Every entry of every EXPANDED directory goes to `visit` for match-side
+/// handling (emissions carry full pattern-space rel strings); entries of
+/// leaf directories are matched inside the workers — each entry is seen
+/// exactly once overall. Non-directories fail the probe and are discarded
+/// (the legacy inline-descent probe behaved identically). Hidden-descent
+/// gating is delegated to `descend`.
+///
+/// Inputs:
+///   root / seed_rel: origin mapping as in `fast_open_root`
+///   visit: `(dir_rel, entry_name)` callback for match-side filtering
+///   descend: entry-name -> whether the descent side may recurse into it
+/// Output: `Vec<Vec<u8>>` — leaf rel strings ready for distribution
+/// Errors: never panics; open failures prune branches (legacy parity)
+fn collect_frontier(
+    root: &[u8],
+    seed_rel: &[u8],
+    visit: &mut dyn FnMut(&[u8], &[u8]),
+    descend: &dyn Fn(&[u8]) -> bool,
+) -> Vec<Vec<u8>> {
+    use std::collections::VecDeque;
+    let mut pending: VecDeque<(Vec<u8>, usize)> = VecDeque::new();
+    pending.push_back((seed_rel.to_vec(), 0));
+    let mut leaves: Vec<Vec<u8>> = Vec::new();
+    let mut confirmed_dirs: usize = 0;
+    while let Some((rel, depth)) = pending.pop_front() {
+        if depth >= FAST_MAX_COLLECT_DEPTH {
+            // Unexpanded by depth cap: its own open would hit ELOOP-style
+            // limits anyway; the worker's failed open prunes identically.
+            leaves.push(rel);
+            continue;
+        }
+        let (fd, _) = match fast_open_root(root, &rel) {
+            Some(x) => x,
+            None => continue, // not a directory / unreachable: pruned
+        };
+        confirmed_dirs += 1;
+        if confirmed_dirs > FAST_FANOUT_WIDTH {
+            // Width budget spent: hand this confirmed directory over
+            // UNREAD (close now; the worker reopens and walks it).
+            // SAFETY: fd is our own open directory fd.
+            unsafe {
+                libc::close(fd);
+            }
+            leaves.push(rel);
+            continue;
+        }
+        // SAFETY: fd is our owned open directory fd adopted by fdopendir.
+        let dp = unsafe { libc::fdopendir(fd) };
+        if dp.is_null() {
+            // SAFETY: fdopendir failed without adopting fd.
+            unsafe {
+                libc::close(fd);
+            }
+            continue;
+        }
+        loop {
+            // SAFETY: live DIR stream; d_name copied before further use.
+            let ent = unsafe { libc::readdir(dp) };
+            if ent.is_null() {
+                break;
+            }
+            // SAFETY: valid dirent from readdir; NUL-terminated d_name.
+            let nb = unsafe { std::ffi::CStr::from_ptr((*ent).d_name.as_ptr()) }.to_bytes();
+            if nb == b"." || nb == b".." {
+                continue;
+            }
+            visit(&rel, nb);
+            // SAFETY: ent is a valid dirent; d_type read before next readdir.
+            let d_type = unsafe { (*ent).d_type };
+            if dt_may_be_dir(d_type) && descend(nb) {
+                pending.push_back((p_join(&rel, nb), depth + 1));
+            }
+        }
+        // SAFETY: dp came from fdopendir; closedir closes the adopted fd.
+        unsafe {
+            libc::closedir(dp);
+        }
+    }
+    leaves
+}
+
+/// Distribute leaf subtrees across scoped threads (sequential when there
+/// is nothing to gain). Each worker opens its assigned rel strings by path
+/// (`fast_open_root`) and runs `walk_one` on private accumulators; results
+/// merge by concatenation (multiset-preserving; ordering is
+/// documented-unspecified). A panic in any worker propagates (never
+/// swallowed: losing a subtree would silently break multiplicity).
+///
+/// Inputs:
+///   root: origin for `fast_open_root`
+///   leaves: pattern-space rel strings of unvisited subtrees
+///   walk_one: `(leaf_rel, deep_out, hits_out)` fused subtree walker
+/// Output: `(deep_paths, out_hits)` accumulated across all workers
+/// Errors: never panics itself; worker panics resume unwinding
+fn fan_out_walks(
+    leaves: Vec<Vec<u8>>,
+    walk_one: &(dyn Fn(&[u8], &mut Vec<Vec<u8>>, &mut Vec<Vec<u8>>) + Sync),
+) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+    let mut deep_all: Vec<Vec<u8>> = Vec::new();
+    let mut out_all: Vec<Vec<u8>> = Vec::new();
+    if leaves.is_empty() {
+        return (deep_all, out_all);
+    }
+    let threads = leaves
+        .len()
+        .min(std::thread::available_parallelism().map_or(1, |n| n.get()))
+        .min(FAST_MAX_THREADS);
+    if threads <= 1 {
+        for rel in &leaves {
+            walk_one(rel, &mut deep_all, &mut out_all);
+        }
+        return (deep_all, out_all);
+    }
+    let chunk = leaves.len().div_ceil(threads);
+    std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for part in leaves.chunks(chunk) {
+            handles.push(scope.spawn(move || {
+                let mut deep_t: Vec<Vec<u8>> = Vec::new();
+                let mut out_t: Vec<Vec<u8>> = Vec::new();
+                for rel in part {
+                    walk_one(rel, &mut deep_t, &mut out_t);
+                }
+                (deep_t, out_t)
+            }));
+        }
+        for h in handles {
+            match h.join() {
+                Ok((d, o)) => {
+                    deep_all.extend(d);
+                    out_all.extend(o);
+                }
+                Err(e) => std::panic::resume_unwind(e),
+            }
+        }
+    });
+    (deep_all, out_all)
+}
+
+/// Open `name` under `dir_fd` as a directory, following symlinks.
+///
+/// Input: `dir_fd: i32` — open directory fd; `name: &[u8]` — entry name
+/// Output: `Option<i32>` — `Some(new_fd)` (ownership transfers to caller,
+/// close via closedir) or `None` when the entry is not an openable
+/// directory (ENOTDIR/ENOENT/EACCES/ELOOP/EMFILE — prune, legacy parity)
+/// Errors: never panics
+fn open_subdir(dir_fd: i32, name: &[u8]) -> Option<i32> {
+    // SAFETY: dir_fd is an open directory fd owned by the caller for the
+    // duration of the call; c is a valid NUL-terminated C string; a failed
+    // openat (< 0) is checked before any use.
+    let fd = unsafe {
+        libc::openat(
+            dir_fd,
+            cstr(name).as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY,
+            0,
+        )
+    };
+    if fd < 0 {
+        None
+    } else {
+        Some(fd)
+    }
+}
+
+/// Open the scan origin for a fused walk seed: `fj(root, prefix)` mapped to
+/// "." when both are empty (the legacy `listdir` empty-dirname mapping).
+///
+/// Input: `root`/`prefix` bytes
+/// Output: `Option<(i32, Vec<u8>)>` — `(fd, prefix_bytes)`; `None` when the
+/// origin cannot be opened as a directory (legacy `_glob2` location gate +
+/// `rlistdir` open-failure prune produce the same empty result set)
+/// Errors: never panics
+fn fast_open_root(root: &[u8], prefix: &[u8]) -> Option<(i32, Vec<u8>)> {
+    let at = fast_scan_path(root, prefix);
+    // SAFETY: open of a caller-supplied path; negative result checked.
+    let fd = unsafe {
+        libc::open(
+            cstr(&at).as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY,
+            0,
+        )
+    };
+    if fd < 0 {
+        None
+    } else {
+        Some((fd, prefix.to_vec()))
+    }
+}
+
+/// Deferred path-based work for subtrees beyond the fd-depth cap: the exact
+/// pre-cap walker semantics, driven by relative path strings.
+enum DeepTask {
+    /// Case (b): suffix-test every entry under the subtree locations.
+    Suffix {
+        stack: Vec<Vec<u8>>,
+        prog: Option<matcher::Program>,
+        star: bool,
+        skip_hidden_matches: bool,
+        descend_hidden: bool,
+    },
+    /// Case (c): `_lexists` the joined two-segment literal per location.
+    Literal2 {
+        stack: Vec<Vec<u8>>,
+        seg1: Vec<u8>,
+        seg2: Vec<u8>,
+        descend_hidden: bool,
+    },
+}
+
+impl DeepTask {
+    fn drain(&mut self, root: &[u8], out: &mut Vec<Vec<u8>>) {
+        loop {
+            let rel = match self.stack_ref_mut().pop() {
+                Some(r) => r,
+                None => return,
+            };
+            let scan_at = fast_scan_path(root, &rel);
+            let rd = match std::fs::read_dir(std::ffi::OsStr::from_bytes(&scan_at)) {
+                Ok(rd) => rd,
+                Err(_) => continue, // open failure prunes the branch
+            };
+            for ent in rd {
+                let en = match ent {
+                    Ok(en) => en,
+                    Err(_) => break, // keep partial listing (CPython parity)
+                };
+                let nb = en.file_name();
+                let b = nb.as_bytes();
+                let dotted = is_hidden(b);
+                match self {
+                    DeepTask::Suffix {
+                        prog,
+                        star,
+                        skip_hidden_matches,
+                        ..
+                    } => {
+                        if !*skip_hidden_matches || !dotted {
+                            let hit = if *star {
+                                true
+                            } else {
+                                match prog {
+                                    Some(p) => matcher::matches(p, b),
+                                    None => true,
+                                }
+                            };
+                            if hit {
+                                out.push(p_join(&rel, b));
+                            }
+                        }
+                    }
+                    DeepTask::Literal2 { seg1, seg2, .. } => {
+                        // Same composition + `_glob0` lexists parity as the
+                        // fd worker above (order differs; multiset equal).
+                        let cand = p_join(&p_join(&rel, seg1), seg2);
+                        if lexists(None, &fj(root, &cand)) {
+                            out.push(cand);
+                        }
+                    }
+                }
+                let descend_hidden = self.descend_hidden();
+                if descend_hidden || !dotted {
+                    let is_dir = match en.file_type() {
+                        Ok(ft) => ft.is_dir() || (ft.is_symlink() && en.path().is_dir()),
+                        Err(_) => false,
+                    };
+                    if is_dir {
+                        self.stack_push(p_join(&rel, b));
+                    }
+                }
+            }
+        }
+    }
+
+    fn stack_ref_mut(&mut self) -> &mut Vec<Vec<u8>> {
+        match self {
+            DeepTask::Suffix { stack, .. } | DeepTask::Literal2 { stack, .. } => stack,
+        }
+    }
+
+    fn stack_push(&mut self, p: Vec<u8>) {
+        self.stack_ref_mut().push(p);
+    }
+
+    fn descend_hidden(&self) -> bool {
+        match self {
+            DeepTask::Suffix { descend_hidden, .. } | DeepTask::Literal2 { descend_hidden, .. } => {
+                *descend_hidden
+            }
+        }
+    }
+}
+
+/// Case (b): one fused fd-DFS for `PREFIX**/SUFFIX` (SUFFIX single segment,
+/// magic or literal). Every visible entry is suffix-tested with the
+/// `_glob1` hidden rule (`*` short-circuits without matcher decode); a
+/// successful `openat(O_DIRECTORY)` both proves dir-ness and yields the
+/// child stream, so descent costs no separate stat. Hidden rules and
+/// error pruning are byte-for-byte the legacy observable contract.
+///
+/// Input: `prefix`/`suffix`/`root` bytes, `opts`
+/// Output: `Vec<Vec<u8>>` — p_join(dir_location, name) hits
+/// Errors: prune/partial semantics identical to the legacy port
+fn fast_walk_suffix(prefix: &[u8], suffix: &[u8], root: &[u8], opts: Opts) -> Vec<Vec<u8>> {
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    let star = suffix == b"*";
+    let prog = if star {
+        None
+    } else {
+        Some(matcher::compile(suffix))
+    };
+    let skip_hidden_matches = !opts.include_hidden && !is_hidden(suffix);
+    let descend_hidden = opts.include_hidden;
+    // Frontier collection: match side runs for every expanded directory's
+    // entries here (full pattern-space strings); leaf subtrees are matched
+    // inside the workers — each entry is seen exactly once overall.
+    let mut leaves = collect_frontier(
+        root,
+        prefix,
+        &mut |dir_rel, nb| {
+            let dotted = is_hidden(nb);
+            if !skip_hidden_matches || !dotted {
+                let hit = if star {
+                    true
+                } else {
+                    match prog.as_ref() {
+                        Some(p) => matcher::matches(p, nb),
+                        None => true,
+                    }
+                };
+                if hit {
+                    out.push(p_join(dir_rel, nb));
+                }
+            }
+        },
+        &|nb| descend_hidden || !is_hidden(nb),
+    );
+    let (deep, hits) = fan_out_walks(
+        std::mem::take(&mut leaves),
+        &|rel, d, o| match fast_open_root(root, rel) {
+            Some((cfd, _)) => walk_fd_suffix(
+                cfd,
+                rel,
+                0,
+                star,
+                prog.as_ref(),
+                skip_hidden_matches,
+                descend_hidden,
+                d,
+                o,
+            ),
+            None => {}
+        },
+    );
+    out.extend(hits);
+    if !deep.is_empty() {
+        let mut task = DeepTask::Suffix {
+            stack: deep,
+            prog,
+            star,
+            skip_hidden_matches,
+            descend_hidden,
+        };
+        task.drain(root, &mut out);
+    }
+    out
+}
+
+/// Recursive fd-chain worker for case (b). Holds one directory fd (its own)
+/// per active level; children are opened from the STREAM's fd, so the
+/// kernel reuses the parent's dentry instead of re-walking the path.
+/// SAFETY (callers): `fd` is an owned open directory fd transferred into
+/// this call and always closed here (via closedir, or manually when
+/// fdopendir fails); `deep`/`out` are append-only accumulators.
+#[allow(clippy::too_many_arguments)]
+fn walk_fd_suffix(
+    fd: i32,
+    rel: &[u8],
+    depth: usize,
+    star: bool,
+    prog: Option<&matcher::Program>,
+    skip_hidden_matches: bool,
+    descend_hidden: bool,
+    deep: &mut Vec<Vec<u8>>,
+    out: &mut Vec<Vec<u8>>,
+) {
+    // SAFETY: fd is a valid open directory fd owned by this call until
+    // closedir; glibc fdopendir adopts it without duplicating (see scan_fd).
+    let dp = unsafe { libc::fdopendir(fd) };
+    if dp.is_null() {
+        // SAFETY: fdopendir failed without adopting fd; close it ourselves.
+        unsafe {
+            libc::close(fd);
+        }
+        return;
+    }
+    loop {
+        // SAFETY: dp is a live DIR stream from fdopendir; each d_name pointer
+        // is valid until the next readdir call and copied before recursion.
+        let ent = unsafe { libc::readdir(dp) };
+        if ent.is_null() {
+            break; // EOF (error treated as end: scan_fd parity)
+        }
+        // SAFETY: valid dirent from readdir; d_name is NUL-terminated.
+        let nb = unsafe { std::ffi::CStr::from_ptr((*ent).d_name.as_ptr()) }.to_bytes();
+        if nb == b"." || nb == b".." {
+            continue;
+        }
+        let dotted = is_hidden(nb);
+        // Match side (`_glob1` rule).
+        if !skip_hidden_matches || !dotted {
+            let hit = if star {
+                true
+            } else {
+                match prog {
+                    Some(p) => matcher::matches(p, nb),
+                    None => true,
+                }
+            };
+            if hit {
+                out.push(p_join(rel, nb));
+            }
+        }
+        // Descent side (`_rlistdir` rule, dironly): the openat IS the
+        // is_dir probe (symlink-following; failures prune the branch) —
+        // but only for dirent types that can possibly be directories.
+        if descend_hidden || !dotted {
+            // SAFETY: ent is a valid dirent; d_type read before next readdir.
+            let d_type = unsafe { (*ent).d_type };
+            if dt_may_be_dir(d_type) {
+                if depth < FAST_MAX_FD_DEPTH {
+                    if let Some(cfd) = open_subdir(fd, nb) {
+                        let crel = p_join(rel, nb);
+                        walk_fd_suffix(
+                            cfd,
+                            &crel,
+                            depth + 1,
+                            star,
+                            prog,
+                            skip_hidden_matches,
+                            descend_hidden,
+                            deep,
+                            out,
+                        );
+                    }
+                } else {
+                    deep.push(p_join(rel, nb));
+                }
+            }
+        }
+    }
+    // SAFETY: dp came from fdopendir; closedir closes the adopted fd.
+    unsafe {
+        libc::closedir(dp);
+    }
+}
+
+/// Case (c): one fused fd-DFS for `PREFIX**/SEG1/SEG2` (both literal). At
+/// each visited directory, SEG1 is located BY NAME within the listing
+/// itself (free — no per-directory lstat); when present and openable as a
+/// directory, SEG2's existence is probed with one `fstatat(AT_SYMLINK_NOFOLLOW)`
+/// (`_glob0` lexists parity: broken symlinks count, literals get no hidden
+/// filtering). The emitted string is the same byte composition the legacy
+/// two-stage pipeline produces. Degenerate SEG1 ("" / "." / "..") is
+/// rejected upstream (try_fast) because name-scanning cannot reproduce
+/// parent/self lookups.
+///
+/// Input: `prefix`, `seg1`, `seg2`, `root` bytes, `opts`
+/// Output: `Vec<Vec<u8>>` — existing candidates under visited directories
+/// Errors: prune/partial semantics identical to the legacy port
+fn fast_walk_literal2(
+    prefix: &[u8],
+    seg1: &[u8],
+    seg2: &[u8],
+    root: &[u8],
+    opts: Opts,
+) -> Vec<Vec<u8>> {
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    let descend_hidden = opts.include_hidden;
+    // Frontier collection; the match-side visit handles the SEG1 presence
+    // scan + `_glob0` candidate emission for every EXPANDED directory
+    // (literals: no hidden filtering, broken symlinks count).
+    let mut leaves = collect_frontier(
+        root,
+        prefix,
+        &mut |dir_rel, nb| {
+            if nb == seg1 {
+                if let Some((sfd, _)) = fast_open_root(root, &p_join(dir_rel, seg1)) {
+                    // SAFETY: sfd is our open directory fd; st fully
+                    // initialized by fstatat on success (== 0 checked).
+                    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+                    // SAFETY: valid C string for SEG2.
+                    let hit = unsafe {
+                        libc::fstatat(
+                            sfd,
+                            cstr(seg2).as_ptr(),
+                            &mut st,
+                            libc::AT_SYMLINK_NOFOLLOW,
+                        ) == 0
+                    };
+                    if hit {
+                        out.push(p_join(&p_join(dir_rel, seg1), seg2));
+                    }
+                    // SAFETY: sfd is our own fd (open_subdir transfer).
+                    unsafe {
+                        libc::close(sfd);
+                    }
+                }
+            }
+        },
+        &|nb| descend_hidden || !is_hidden(nb),
+    );
+    let (deep, hits) = fan_out_walks(
+        std::mem::take(&mut leaves),
+        &|rel, d, o| match fast_open_root(root, rel) {
+            Some((cfd, _)) => walk_fd_literal2(cfd, rel, 0, seg1, seg2, descend_hidden, d, o),
+            None => {}
+        },
+    );
+    out.extend(hits);
+    if !deep.is_empty() {
+        let mut task = DeepTask::Literal2 {
+            stack: deep,
+            seg1: seg1.to_vec(),
+            seg2: seg2.to_vec(),
+            descend_hidden,
+        };
+        task.drain(root, &mut out);
+    }
+    out
+}
+
+/// Recursive fd-chain worker for case (c); see `walk_fd_suffix` for the
+/// fd/discipline contract.
+#[allow(clippy::too_many_arguments)]
+fn walk_fd_literal2(
+    fd: i32,
+    rel: &[u8],
+    depth: usize,
+    seg1: &[u8],
+    seg2: &[u8],
+    descend_hidden: bool,
+    deep: &mut Vec<Vec<u8>>,
+    out: &mut Vec<Vec<u8>>,
+) {
+    // SAFETY: fd is a valid open directory fd owned by this call until
+    // closedir; glibc fdopendir adopts it without duplicating (see scan_fd).
+    let dp = unsafe { libc::fdopendir(fd) };
+    if dp.is_null() {
+        // SAFETY: fdopendir failed without adopting fd; close it ourselves.
+        unsafe {
+            libc::close(fd);
+        }
+        return;
+    }
+    let mut seg1_fd: Option<i32> = None;
+    loop {
+        // SAFETY: dp is a live DIR stream from fdopendir; each d_name pointer
+        // is valid until the next readdir call and copied before recursion.
+        let ent = unsafe { libc::readdir(dp) };
+        if ent.is_null() {
+            break;
+        }
+        // SAFETY: valid dirent from readdir; d_name is NUL-terminated.
+        let nb = unsafe { std::ffi::CStr::from_ptr((*ent).d_name.as_ptr()) }.to_bytes();
+        if nb == b"." || nb == b".." {
+            continue;
+        }
+        if seg1_fd.is_none() && nb == seg1 {
+            // SEG1 exists here (any type); only directory-or-symlink-to-dir
+            // forms can contain SEG2, and openat proves that for free.
+            seg1_fd = open_subdir(fd, nb);
+        }
+        let dotted = is_hidden(nb);
+        if descend_hidden || !dotted {
+            // SAFETY: ent is a valid dirent; d_type read before next readdir.
+            let d_type = unsafe { (*ent).d_type };
+            if dt_may_be_dir(d_type) {
+                if depth < FAST_MAX_FD_DEPTH {
+                    if let Some(cfd) = open_subdir(fd, nb) {
+                        let crel = p_join(rel, nb);
+                        walk_fd_literal2(
+                            cfd,
+                            &crel,
+                            depth + 1,
+                            seg1,
+                            seg2,
+                            descend_hidden,
+                            deep,
+                            out,
+                        );
+                    }
+                } else {
+                    deep.push(p_join(rel, nb));
+                }
+            }
+        }
+    }
+    if let Some(sfd) = seg1_fd {
+        // _glob0 parity: lstat (NOFOLLOW) — broken symlinks count as existing.
+        // SAFETY: sfd is our open directory fd; st is fully initialized by
+        // fstatat on success (the == 0 result is checked before any field
+        // would be read).
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: c is a valid NUL-terminated C string for the SEG2 name.
+        let hit = unsafe {
+            libc::fstatat(sfd, cstr(seg2).as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW) == 0
+        };
+        if hit {
+            out.push(p_join(&p_join(rel, seg1), seg2));
+        }
+        // SAFETY: sfd is our own open fd (open_subdir transfer).
+        unsafe {
+            libc::close(sfd);
+        }
+    }
+    // SAFETY: dp came from fdopendir; closedir closes the adopted fd.
+    unsafe {
+        libc::closedir(dp);
+    }
 }
 
 // ---------------------------------------------------------------------------
