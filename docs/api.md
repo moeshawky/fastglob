@@ -6,7 +6,7 @@
 
 ---
 
-## Rust Library `fastglob` (`src/fastglob/src/lib.rs:1-56`, `Cargo.toml` version 0.1.0, `libc 0.2`)
+## Rust Library `fastglob` (`src/fastglob/src/lib.rs:1-56`, `Cargo.toml` version 0.1.3, `libc 0.2`)
 
 ### `fastglob::glob(pathname, root_dir, dir_fd, recursive, include_hidden) -> Vec<OsString>`
 
@@ -101,7 +101,7 @@ pub struct Opts { pub recursive: bool, pub include_hidden: bool }
 
 ---
 
-## Python Package `fastglob` (`python/fastglob/__init__.py:1-327`, `__version__ 0.1.0`)
+## Python Package `fastglob` (`python/fastglob/__init__.py`, `__version__ 0.1.3`, PyO3 in-process `_core`)
 
 **Install:** `pip install -e python` or `PYTHONPATH=python` (**verified** 2026-08-22 `PYTHONPATH=python python3 -c 'import fastglob; print(fastglob.escape("a*b"))'` → `a[*]b`)
 
@@ -128,7 +128,7 @@ import fastglob, pathlib, tempfile, os
 # fastglob.glob("basic/*", root_dir="tests/fixtures/tree") == glob.glob("basic/*", root_dir="tests/fixtures/tree")
 ```
 
-**Errors:** `RuntimeError` if binary exit≠0 (`__init__.py:85`), `ValueError` for bad `dir_fd` or NUL (`main.rs:151`, subprocess arg check)
+**Errors:** `RuntimeError` if `_core` returns an error (e.g. fd not a directory), `ValueError` for bad `dir_fd` or NUL (PyO3 arg check)
 
 ### Bytes patterns (stdlib parity)
 

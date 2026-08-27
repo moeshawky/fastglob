@@ -455,7 +455,7 @@ def main():
     ap.add_argument("--candidate", help="candidate results file, or '-' for stdin")
     ap.add_argument("--oracle", default=DEFAULT_ORACLE, help="oracle capture.json (default: repo capture)")
     ap.add_argument("--self-test", action="store_true",
-                    help="compare the oracle capture against itself (must be 100% green)")
+                    help="compare the oracle capture against itself (must be 100 percent green)")
     args = ap.parse_args()
 
     # FRESHNESS GATE first (C15): refuse stale/unverifiable oracle captures

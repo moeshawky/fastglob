@@ -17,7 +17,7 @@
 ## Container Diagram (Verified via `find` + `Makefile`)
 
 ```
-[Agent Python code] --import fastglob--> [python/fastglob/__init__.py 327 lines] --subprocess.run --null + pass_fds--> [Rust binary src/target/release/fastglob 387KB]
+[Agent Python code] --import fastglob--> [python/fastglob/__init__.py] --PyO3 in-process _core--> [Rust engine fastglob._core (maturin/PyO3, 0.1.3)]
          |                                                                                         |
          |--- stdlib fallback (gnu-glob escape hatch, planned)                                     |--- filesystem (readdir, fstatat, openat)
          |--- tests/fixtures/tree (133 cases, 9 families)                                        |--- matcher fnmatch-3.12 (surrogateescape)
@@ -100,9 +100,9 @@ _iglob -> _glob1 (filter via matcher) / _glob2 (recursive) -> _rlistdir (recurse
 
 **Build:** `make build` → `cargo build --release` LTO thin, `opt-level 3`, `strip symbols`, 387KB
 
-**Runtime:** Single process per CLI call; Python wrapper shells out per `glob` call (hot-loop note in `__init__.py:12-24`). No daemon, cache, index, network.
+**Runtime:** In-process PyO3 `fastglob._core` (no per-call subprocess, no `pass_fds`). No daemon, cache, index, network.
 
-**Planned transparent layer (deferred P1):** `glob`-named module via `PYTHONPATH/.pth/sitecustomize` at `bashrc/profile.d/PAM/BASH_ENV` with `gnu-glob` escape hatch and auto-rollback on suite failure (order: engine → 133/133 → bench/profile → shim). Not yet shipped (README.md § Transparent Replacement).
+**Transparent layer (DEPLOYED):** `glob`-named module `shim/glob.py` (0.1.3) injected via `PYTHONPATH=/opt/fastglob-shim` at `bashrc/profile.d/PAM/BASH_ENV`, with `gnu_glob` escape hatch and auto-rollback on suite failure (order: engine → 133/133 → bench/profile → shim). Deployed 2026-08-27.
 
 ---
 

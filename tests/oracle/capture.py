@@ -41,7 +41,32 @@ case:   {case_id, section, kind, pattern, kwargs, note,
 
 Exit code 0 on completion (timeouts are data, not failures of the harness).
 """
-import glob as _glob
+# Load TRUE stdlib glob — immune to the fastglob shim on sys.path.
+# Under PYTHONPATH=/opt/fastglob-shim a naive `import glob` would resolve to
+# the shim (the candidate engine), not the oracle. Mirror the shim's own
+# path-strip loader (shim/glob.py:26-47) so the captured oracle is always the
+# installed interpreter's real stdlib glob.
+import importlib.util as _ilu
+import importlib.machinery as _ilm
+import sys as _sys
+_stdlib_glob = None
+_shim_dir = "/opt/fastglob-shim"
+try:
+    _orig_path = list(_sys.path)
+    try:
+        _sys.path = [p for p in _sys.path if p != _shim_dir and p != ""]
+        _spec = _ilm.PathFinder.find_spec("glob", _sys.path)
+        if _spec and _spec.loader:
+            _mod = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+            _stdlib_glob = _mod
+    finally:
+        _sys.path = _orig_path
+except Exception:
+    _stdlib_glob = None
+if _stdlib_glob is None:
+    import glob as _stdlib_glob  # type: ignore[no-redef]
+_glob = _stdlib_glob
 import json
 import os
 import sys

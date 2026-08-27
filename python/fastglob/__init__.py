@@ -42,7 +42,7 @@ from . import _core
 
 __all__ = ["escape", "glob", "has_magic", "iglob"]
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 # Filesystem path arguments: str, bytes, or a PathLike whose ``__fspath__``
 # returns str or bytes (stdlib parity — CPython glob accepts all three).
@@ -314,3 +314,47 @@ def has_magic(pathname: _PathArg) -> bool:
         TypeError if pathname is not str/bytes/PathLike (via fsencode)
     """
     return _core.has_magic(_fs(pathname))
+
+
+# --- ``glob.translate`` (CPython 3.13+ standard-library surface) ------------
+# Mirror it on interpreters that provide it so fastglob's *public* contract
+# tracks the running Python. VERIFIED: 3.14 stdlib exposes ``glob.translate``;
+# 3.12 does not, so on 3.12 ``fastglob.translate`` stays undefined (matching
+# stdlib — the oracle compat suite records it as ``skipped_not_exposed`` and
+# the candidate must not claim a value, which it doesn't).
+#
+# Loaded shim-immune: a naive ``from glob import translate`` would, under
+# ``PYTHONPATH=/opt/fastglob-shim``, bind the shim's proxy (which itself
+# defers to stdlib, so it would still be correct — but re-entrancy with the
+# shim's own ``import fastglob`` is fragile). We instead load the TRUE stdlib
+# ``glob`` the same path-strip way capture.py / gnu_glob do, so the value is
+# always the real stdlib ``translate`` and the dependency is explicit.
+def _real_stdlib_glob_module():
+    """Return the true stdlib ``glob`` module, never the fastglob shim proxy."""
+    import importlib.machinery as _ilm
+    import importlib.util as _iu
+    import sys as _sys
+
+    _shim_dir = "/opt/fastglob-shim"
+    _orig = list(_sys.path)
+    try:
+        _sys.path = [p for p in _orig if p != _shim_dir and p != ""]
+        _spec = _ilm.PathFinder.find_spec("glob", _sys.path)
+        if _spec and _spec.loader:
+            _mod = _iu.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+            return _mod
+    except Exception:
+        return None
+    finally:
+        _sys.path = _orig
+    return None
+
+
+_real_glob = _real_stdlib_glob_module()
+if _real_glob is not None:
+    _translate_fn = getattr(_real_glob, "translate", None)
+    if _translate_fn is not None:
+        translate = _translate_fn  # type: ignore[assignment]
+        if "translate" not in __all__:
+            __all__ = list(__all__) + ["translate"]

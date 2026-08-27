@@ -194,7 +194,7 @@ python3 tests/compat/compare.py --self-test  # 133/133 + 3/3 zone synthetic
 - **Engine:** Single-pass Rust port of `glob.py` algorithm (`_iglob → _glob1/_glob2 → _rlistdir → _iterdir`) — `src/fastglob/src/walk.rs:1-22` header, 819 lines, matcher.rs 724 lines, lib.rs 72 lines thin wrapper, main.rs 306 lines CLI. All `&[u8]` byte-exact, `OsStr` end-to-end, no lossy UTF-8.
 - **Matcher:** `src/fastglob/src/matcher.rs:43` `decode_chars` surrogateescape `0xDC00|b`, `compile` (:184) fnmatch-3.12 translate port, `matches` (:433) atomic `(?>.*?F)`.
 - **Files:** `src/fastglob/src/lib.rs:18-19` `pub mod matcher, walk`; `Cargo.toml` `libc 0.2` only.
-- **Python shim:** `python/fastglob/__init__.py:1-327` shells out per call (`subprocess.run`, `pass_fds`, `fsdecode` surrogateescape), never shadows stdlib.
+- **Python package:** `python/fastglob/__init__.py` calls the PyO3 in-process `_core` (no subprocess, no `pass_fds`; `os.fsdecode`/`fsencode` surrogateescape). The deployed shim `shim/glob.py` (0.1.3) shadows stdlib `glob` via `PYTHONPATH=/opt/fastglob-shim` with `gnu_glob` escape hatch.
 - **Bench/Compat:** `bench/bench.py` 463 lines, `tests/compat/{case_runner.py,run_engine.py,compare.py}` harness with `Counter` + `zone` protocol (`compare.py:64-111`).
 
 See `docs/architecture.md` for C4 diagram and `docs/api.md` for typed signatures.
@@ -228,7 +228,7 @@ ls -lh src/target/release/fastglob
 
 ## Transparent Replacement (planned)
 
-Goal: drop-in `glob` acceleration via `PYTHONPATH`/`.pth`/`sitecustomize` injection with `gnu-glob` escape hatch and auto-rollback on suite failure. Engine → 133/133 → bench/profile → shim order. Not yet implemented; tracked as deferred P1.
+Status: DEPLOYED — drop-in `glob` acceleration via `PYTHONPATH=/opt/fastglob-shim` injection (`shim/glob.py`, 0.1.3) with `gnu_glob` escape hatch and auto-rollback on suite failure. Order: engine → 133/133 → bench/profile → shim. (See `docs/architecture.md` Deployment.)
 **Source:** `AGENTS.md` operator clarification 2026-08-20
 
 ## Project Commands (Makefile)
