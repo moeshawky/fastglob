@@ -2,7 +2,7 @@
 
 **Source hierarchy:** Running code (highest) → code graph → tests → comments.
 **Last Verified:** 2026-08-22 22:22 UTC
-**Verification:** `cargo test 16 passed` + `PYTHONPATH=python python3 -m doctest python/fastglob/__init__.py` + `python3 tests/compat/compare.py --self-test 133/133`
+**Verification** (re-measured 2026-09-21): `cargo test` **34 passed** (17 lib unit + 7 + 10) + `python3 tests/test_package.py` **27 OK** + `python3 tests/compat/compare.py --self-test` **139/139** (+ zone 3/3)
 
 ---
 
@@ -42,7 +42,7 @@ cargo test --manifest-path src/Cargo.toml -- walk::tests::basic_and_literal -v
 
 ### `fastglob::escape(pathname) -> OsString`
 
-**Source:** `src/fastglob/src/lib.rs:61-70`, `matcher.rs:498-516`
+**Source:** `src/fastglob/src/lib.rs:61-70`, `matcher.rs:557-569`
 
 ```rust
 pub fn escape(pathname: &OsStr) -> OsString
@@ -59,7 +59,7 @@ assert_eq!(fastglob::escape(OsStr::new("a*b")), OsString::from("a[*]b"));
 
 ### `fastglob::has_magic(s) -> bool`
 
-**Source:** `src/fastglob/src/lib.rs:70-72`, `matcher.rs:498-500`
+**Source:** `src/fastglob/src/lib.rs:70-72`, `matcher.rs:547-549`
 
 ```rust
 pub fn has_magic(s: &OsStr) -> bool
@@ -90,11 +90,11 @@ pub struct Opts { pub recursive: bool, pub include_hidden: bool }
 
 ### `fastglob::matcher::compile / matches / escape`
 
-**Source:** `src/fastglob/src/matcher.rs:39-516`
+**Source:** `src/fastglob/src/matcher.rs:54-569`
 
-- `decode_chars(bytes: &[u8]) -> Vec<u32>` surrogateescape `0xDC00|b` (`matcher.rs:39`)
-- `compile(pat: &[u8]) -> Program` fnmatch-3.12 translate port (`matcher.rs:177`), always succeeds (unclosed `[` → literal)
-- `matches(prog: &Program, name: &[u8]) -> bool` atomic `(?>.*?F)` semantics, verified 400k differential (`out/dev/diff_match.py` comment)
+- `decode_chars(bytes: &[u8]) -> Vec<u32>` surrogateescape `0xDC00|b` (`matcher.rs:54`). Note: this is the `os.fsdecode` model, shared with the `glob()` walk, and is deliberately NOT `fnmatch`'s ISO-8859-1 bytes model — see `docs/compatibility-contract.md` §8.10.
+- `compile(pat: &[u8]) -> Program` fnmatch-3.12 translate port (`matcher.rs:208`), always succeeds (unclosed `[` → literal)
+- `matches(prog: &Program, name: &[u8]) -> bool` atomic `(?>.*?F)` semantics; differential vs stdlib `fnmatch.fnmatchcase` is committed and reproducible in `tests/test_match_bytes_oracle.py` (59,860 exhaustive + 20,000 random str pairs, 0 mismatches)
 - `has_magic / escape` as above
 
 **Verification:** `cargo test matcher::tests::* 6 passed`
@@ -119,7 +119,7 @@ def glob(pathname: bytes, *, root_dir=None, dir_fd=None,
 ```
 
 - **Mechanic (0.1.1):** In-process call to the native engine module `fastglob._core` (PyO3, built by maturin from `src/fastglob` with `--features pyo3`; bindings in `src/fastglob/src/pyo3_ext.rs`) — no subprocess, no F_DUPFD/pass_fds; the caller's `dir_fd` is used in-process and never closed by the engine. `os.fsencode`/`fsdecode` surrogateescape in the shim. Result TYPE follows the PATTERN type (Ct38): bytes pattern → raw bytes records, str/PathLike → fsdecode'd str. Misuse verdicts mirror the CLI: embedded NUL → ValueError (stdlib parity); >8192 bytes or >512 components → RuntimeError "pattern too long"; `dir_fd` not an open directory → RuntimeError "fd is not a directory: N".
-- **Verified:** `PYTHONPATH=python python3 -c "import fastglob, glob; print(fastglob.glob('*') == glob.glob('*'))"` in `tests/fixtures/tree` → `Counter` equality via harness 133 cases; str-path behavior unchanged by the bytes work (Counter-equal vs stdlib, VERIFIED 2026-08-22).
+- **Verified:** `PYTHONPATH=python python3 -c "import fastglob, glob; print(fastglob.glob('*') == glob.glob('*'))"` in `tests/fixtures/tree` → `Counter` equality via harness 139 cases; str-path behavior unchanged by the bytes work (Counter-equal vs stdlib, VERIFIED 2026-08-22).
 
 **Executable Example (from `README.md:36`):**
 ```python
@@ -135,7 +135,7 @@ import fastglob, pathlib, tempfile, os
 Bytes are preserved end-to-end: **bytes pattern → bytes results**, exactly like
 the installed reference implementation.
 
-- **Parity evidence (VERIFIED 2026-08-22 against CPython 3.12.13):**
+- **Parity evidence (re-measured 2026-09-21 against CPython 3.12.3, the committed capture's interpreter):**
   `glob.escape(b'a*b') == b'a[*]b'`; `glob.glob(b'*.py')` yields `bytes`
   elements; reference source branches on `isinstance(pathname, bytes)`
   (`Lib/glob.py:224/234/245`). fastglob matches:
@@ -188,8 +188,8 @@ assert fastglob.escape(b"a*b") == b"a[*]b"
 ```
 
 **Performance (Measured):**
-- Cold start: `make build 0.03s` incremental, binary 385KB
-- Hot path: walk is single-pass, `d_type` + `fstatat` per entry, no `lstat` for common dirs (`walk.rs:177-208`)
+- Cold start: `make build` 0.13s incremental (measured 2026-09-21), binary 452KB
+- Hot path: walk is single-pass, `d_type` + `fstatat` per entry, no `lstat` for common dirs (`walk.rs:245-260`)
 - Throughput: see `bench/results/baseline.md` — run `make bench` (wide 100k 395M tree)
 
 **Errors (from tests):**
@@ -198,11 +198,11 @@ assert fastglob.escape(b"a*b") == b"a[*]b"
 - `RuntimeError: ... --dir-fd: fd out of range: 3000000000 (valid 0..=1073741823)` — overflow/negative/out-of-window (exit 2)
 - `RuntimeError: ... --dir-fd: fd is not open or not a directory: 999999999` — closed/never-open fd, fstat EBADF (exit 2)
   (sibling verdict when fd is open but points at a file: `fd is not a directory: {fd}`)
-- `ValueError: embedded null byte` for NUL in the pattern (Python level, subprocess arg check)
+- `ValueError: fastglob: embedded null byte in PATTERN` (and `... in --root-dir` when the NUL is in `root_dir`) — raised by the in-process `fastglob._core` PyO3 call at `python/fastglob/__init__.py:141`, **not** a subprocess arg check. The exception TYPE matches stdlib; the message text does not (measured 2026-09-21).
 
 **Verification Commands:**
 ```bash
-cargo test --manifest-path src/Cargo.toml 2>&1 | grep "16 passed"
+cargo test --manifest-path src/Cargo.toml 2>&1 | grep "17 passed"
 PYTHONPATH=python python3 -c "import fastglob; print(fastglob.glob('*.py', root_dir='tests/fixtures/tree/basic'))" | head
 ./src/target/release/fastglob escape "a*b"  # Expected: a[*]b
 PYTHONPATH=python python3 -c "import fastglob; assert fastglob.escape(b'a*b')==b'a[*]b'; print('bytes parity ok')"

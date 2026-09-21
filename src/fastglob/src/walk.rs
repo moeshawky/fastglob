@@ -20,6 +20,29 @@
 use crate::matcher;
 use std::ffi::CString;
 use std::os::unix::ffi::OsStrExt;
+use std::sync::OnceLock;
+
+/// TEST AFFORDANCE (inert when unset): `FASTGLOB_NO_FUSED` env var.
+/// Non-empty value disables the fused fast path entirely, forcing the
+/// verbatim CPython port for every pattern. Latched ONCE at first glob
+/// call via `OnceLock<bool>` — reading `std::env::var` on every call
+/// would tax the hot path. The latched value is process-lifetime.
+/// With the var unset, output is byte-identical to the default fused path.
+/// Note: `try_fast` already returns `None` when `dir_fd.is_some()`, so
+/// this switch is a no-op for `--dir-fd` invocations.
+static FUSED_DISABLED: OnceLock<bool> = OnceLock::new();
+
+/// Returns `true` if the fused fast path is disabled via `FASTGLOB_NO_FUSED`.
+/// Input: none. Output: `bool` — `true` iff env var is set non-empty.
+/// Errors: none (`var_os` used, no panic). Invariant: value latched at
+/// first call, process-lifetime (see `FUSED_DISABLED`).
+fn fused_disabled() -> bool {
+    *FUSED_DISABLED.get_or_init(|| {
+        std::env::var_os("FASTGLOB_NO_FUSED")
+            .map(|v| !v.to_string_lossy().is_empty())
+            .unwrap_or(false)
+    })
+}
 
 /// Option flags mirroring `glob.glob(...)` keyword arguments.
 ///
@@ -69,9 +92,14 @@ fn iglob_collect(
 ) {
     // Fused fast paths (hot pattern families): single-pass traversal with
     // byte-identical result multisets. `None` -> verbatim port below.
-    if let Some(res) = try_fast(pattern, root, dir_fd, opts) {
-        out.extend(res);
-        return;
+    // `FASTGLOB_NO_FUSED` (non-empty) disables the fused path entirely,
+    // forcing the verbatim port for every pattern (test affordance, inert
+    // when unset, latched once — see `fused_disabled`).
+    if !fused_disabled() {
+        if let Some(res) = try_fast(pattern, root, dir_fd, opts) {
+            out.extend(res);
+            return;
+        }
     }
     let mut inner = _iglob(pattern, root, dir_fd, opts, false);
     if (pattern.is_empty() || (opts.recursive && pattern.len() >= 2 && &pattern[0..2] == b"**"))
@@ -571,12 +599,7 @@ fn rlistdir(dir_fd: Option<i32>, dirname: &[u8], dironly: bool, opts: Opts) -> V
 /// Errors: never panics; filesystem errors prune exactly like the legacy
 /// port (open failure -> branch pruned; mid-iteration error -> stop and
 /// keep the partial listing)
-fn try_fast(
-    pattern: &[u8],
-    root: &[u8],
-    dir_fd: Option<i32>,
-    opts: Opts,
-) -> Option<Vec<Vec<u8>>> {
+fn try_fast(pattern: &[u8], root: &[u8], dir_fd: Option<i32>, opts: Opts) -> Option<Vec<Vec<u8>>> {
     if dir_fd.is_some() {
         return None;
     }
@@ -678,7 +701,11 @@ fn fast_single_component(root: &[u8], pat: &[u8], opts: Opts) -> Vec<Vec<u8>> {
         Err(_) => return out,
     };
     let star = pat == b"*";
-    let prog = if star { None } else { Some(matcher::compile(pat)) };
+    let prog = if star {
+        None
+    } else {
+        Some(matcher::compile(pat))
+    };
     let skip_hidden = !opts.include_hidden && !is_hidden(pat);
     for ent in rd {
         let en = match ent {
@@ -736,10 +763,7 @@ const FAST_MAX_COLLECT_DEPTH: usize = 40;
 /// the probe for them is observable-equivalent to the legacy mode check
 /// (`fd_entry_is_dir`'s `_ => false` arm) without the syscall.
 fn dt_may_be_dir(d_type: u8) -> bool {
-    matches!(
-        d_type,
-        libc::DT_DIR | libc::DT_LNK | libc::DT_UNKNOWN
-    )
+    matches!(d_type, libc::DT_DIR | libc::DT_LNK | libc::DT_UNKNOWN)
 }
 
 /// Grow a balanced frontier of subtree locations from the seed directory.
@@ -845,10 +869,7 @@ fn collect_frontier(
 ///   walk_one: `(leaf_rel, deep_out, hits_out)` fused subtree walker
 /// Output: `(deep_paths, out_hits)` accumulated across all workers
 /// Errors: never panics itself; worker panics resume unwinding
-fn fan_out_walks(
-    leaves: Vec<Vec<u8>>,
-    walk_one: &WalkOneFn<'_>,
-) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+fn fan_out_walks(leaves: Vec<Vec<u8>>, walk_one: &WalkOneFn<'_>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     let mut deep_all: Vec<Vec<u8>> = Vec::new();
     let mut out_all: Vec<Vec<u8>> = Vec::new();
     if leaves.is_empty() {
@@ -927,13 +948,7 @@ fn open_subdir(dir_fd: i32, name: &[u8]) -> Option<i32> {
 fn fast_open_root(root: &[u8], prefix: &[u8]) -> Option<(i32, Vec<u8>)> {
     let at = fast_scan_path(root, prefix);
     // SAFETY: open of a caller-supplied path; negative result checked.
-    let fd = unsafe {
-        libc::open(
-            cstr(&at).as_ptr(),
-            libc::O_RDONLY | libc::O_DIRECTORY,
-            0,
-        )
-    };
+    let fd = unsafe { libc::open(cstr(&at).as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY, 0) };
     if fd < 0 {
         None
     } else {
@@ -1092,24 +1107,21 @@ fn fast_walk_suffix(prefix: &[u8], suffix: &[u8], root: &[u8], opts: Opts) -> Ve
         },
         &|nb| descend_hidden || !is_hidden(nb),
     );
-    let (deep, hits) = fan_out_walks(
-        std::mem::take(&mut leaves),
-        &|rel, d, o| {
-            if let Some((cfd, _)) = fast_open_root(root, rel) {
-                walk_fd_suffix(
-                    cfd,
-                    rel,
-                    0,
-                    star,
-                    prog.as_ref(),
-                    skip_hidden_matches,
-                    descend_hidden,
-                    d,
-                    o,
-                );
-            }
-        },
-    );
+    let (deep, hits) = fan_out_walks(std::mem::take(&mut leaves), &|rel, d, o| {
+        if let Some((cfd, _)) = fast_open_root(root, rel) {
+            walk_fd_suffix(
+                cfd,
+                rel,
+                0,
+                star,
+                prog.as_ref(),
+                skip_hidden_matches,
+                descend_hidden,
+                d,
+                o,
+            );
+        }
+    });
     out.extend(hits);
     if !deep.is_empty() {
         let mut task = DeepTask::Suffix {
@@ -1249,12 +1261,8 @@ fn fast_walk_literal2(
                     let mut st: libc::stat = unsafe { std::mem::zeroed() };
                     // SAFETY: valid C string for SEG2.
                     let hit = unsafe {
-                        libc::fstatat(
-                            sfd,
-                            cstr(seg2).as_ptr(),
-                            &mut st,
-                            libc::AT_SYMLINK_NOFOLLOW,
-                        ) == 0
+                        libc::fstatat(sfd, cstr(seg2).as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW)
+                            == 0
                     };
                     if hit {
                         out.push(p_join(&p_join(dir_rel, seg1), seg2));
@@ -1268,14 +1276,11 @@ fn fast_walk_literal2(
         },
         &|nb| descend_hidden || !is_hidden(nb),
     );
-    let (deep, hits) = fan_out_walks(
-        std::mem::take(&mut leaves),
-        &|rel, d, o| {
-            if let Some((cfd, _)) = fast_open_root(root, rel) {
-                walk_fd_literal2(cfd, rel, 0, seg1, seg2, descend_hidden, d, o);
-            }
-        },
-    );
+    let (deep, hits) = fan_out_walks(std::mem::take(&mut leaves), &|rel, d, o| {
+        if let Some((cfd, _)) = fast_open_root(root, rel) {
+            walk_fd_literal2(cfd, rel, 0, seg1, seg2, descend_hidden, d, o);
+        }
+    });
     out.extend(hits);
     if !deep.is_empty() {
         let mut task = DeepTask::Literal2 {

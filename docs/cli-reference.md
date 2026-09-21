@@ -123,7 +123,7 @@ PYTHONPATH=python python3 -c "import fastglob; print(fastglob.glob('*', root_dir
 # Expected: a[*]b\0
 ```
 
-**Source:** `matcher.rs:498-516` `escape`, verified `fastglob.escape("a*b") == "a[*]b"`
+**Source:** `matcher.rs:557-569` `escape`, verified `fastglob.escape("a*b") == "a[*]b"`
 
 ### Root-dir and dir-fd
 ```bash

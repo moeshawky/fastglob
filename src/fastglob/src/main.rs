@@ -64,12 +64,14 @@ fn err(msg: &str) -> ExitCode {
 /// Output: `Result<Args, ExitCode>` — `Ok(Args)` on success, `Err(ExitCode(2))` on misuse (diagnostic on stderr), `Err(ExitCode(0))` on `--help`.
 /// Errors: returns `ExitCode(2)` for unknown options, missing PATTERN, multiple PATTERNs, invalid `--dir-fd`, NUL bytes in PATTERN/root_dir, pattern too long (>8192 bytes or >512 components), or both --root-dir and --dir-fd specified.
 /// Invariants: `root_dir` and `pattern` are byte-exact (no lossy UTF-8 conversion); caller must have converted `OsString` via `OsStringExt::into_vec`.
+/// Note (F-003): the `--root-dir`/`--dir-fd` exclusion is tracked by a separate `root_dir_supplied` flag, because an EMPTY `root_dir` is the engine's "use cwd" sentinel and therefore cannot distinguish `--root-dir=` from an omitted flag.
 fn parse(args: &[Vec<u8>]) -> Result<Args, ExitCode> {
     let mut escape = false;
     let mut recursive = false;
     let mut include_hidden = false;
     let mut null = false;
     let mut root_dir: Vec<u8> = Vec::new();
+    let mut root_dir_supplied = false;
     let mut dir_fd: Option<i32> = None;
     let mut pattern: Vec<u8> = Vec::new();
     let mut have_pattern = false;
@@ -94,13 +96,16 @@ fn parse(args: &[Vec<u8>]) -> Result<Args, ExitCode> {
             b"--recursive" => recursive = true,
             b"--include-hidden" => include_hidden = true,
             b"--null" => null = true,
-            b"--" => {}
+            // The bare `--` terminator is handled above (and always
+            // `continue`s), so no arm here is reachable for it — F-006 removed
+            // the dead `b"--" => {}` arm that implied otherwise.
             b"--root-dir" => {
                 i += 1;
                 if i >= args.len() {
                     return Err(err("--root-dir requires PATH"));
                 }
                 root_dir = args[i].clone();
+                root_dir_supplied = true;
                 i += 1;
                 continue;
             }
@@ -121,6 +126,9 @@ fn parse(args: &[Vec<u8>]) -> Result<Args, ExitCode> {
             }
             s if s.starts_with(b"--root-dir=") => {
                 root_dir = s[b"--root-dir=".len()..].to_vec();
+                // `--root-dir=` with an empty value still SUPPLIES the flag
+                // (F-003): the guard below is about flag provenance.
+                root_dir_supplied = true;
             }
             s if s.starts_with(b"--dir-fd=") => {
                 let fd_str = std::str::from_utf8(&s[b"--dir-fd=".len()..]).map_err(|_| {
@@ -180,8 +188,11 @@ fn parse(args: &[Vec<u8>]) -> Result<Args, ExitCode> {
     if components > MAX_COMPONENTS {
         return Err(err("pattern too long"));
     }
-    // Minor: dual-flag precedence — both specified is misuse
-    if !root_dir.is_empty() && dir_fd.is_some() {
+    // Dual-flag precedence — both specified is misuse. Keyed on whether the
+    // caller SUPPLIED `--root-dir`, not on the value being non-empty (F-003):
+    // `--root-dir= --dir-fd N` used to slip past this guard because an empty
+    // root_dir is indistinguishable from an omitted one.
+    if root_dir_supplied && dir_fd.is_some() {
         return Err(err("cannot specify both --root-dir and --dir-fd"));
     }
     Ok(Args {

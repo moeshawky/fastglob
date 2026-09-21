@@ -13,6 +13,86 @@
 
 ---
 
+## 0. CORRECTION & STATUS — added 2026-09-21 (this document is a 2026-08-27 snapshot)
+
+**The witnesses below are reproduced unchanged.** They are a dated transcript, and
+rewriting a transcript destroys its evidentiary value. What this section corrects is every
+statement in this document that claims something about the *committed* repository or its
+*environment*, because both have moved since 2026-08-27. Where a body statement is now
+false, it carries an inline `§0` marker and the measured value is recorded here.
+
+### 0.1 The recorded environment is not reproducible on the current box
+
+| condition | as recorded here (2026-08-27) | re-measured 2026-09-21 |
+|---|---|---|
+| architecture / host | not recorded | **aarch64**, `forge-hive` |
+| `/usr/bin/python3` | `Python 3.12.13` | **`Python 3.12.3`** |
+| true stdlib `glob` | `/usr/local/lib/python3.12/glob.py` | **`/usr/lib/python3.12/glob.py`** |
+| `/usr/local/bin/python3` | implied by `bench/results/baseline.md` | **absent** |
+| uv 3.14 venv `/root/.local/share/uv/python/cpython-3.14.5-…` | 3.14.5 | **unreadable from uid 1001** (`Permission denied`) |
+| installed wheel `/usr/local/lib/python3.12/dist-packages/fastglob` | present (doc says 0.1.2) | **present, version 0.1.3** (`fastglob-0.1.3.dist-info`); shadowed here by `/home/ubuntu/fastglob/python` on `sys.path` |
+| `PYTHONPATH` | `/opt/fastglob-shim` (shim active) | unchanged (`/opt/fastglob-shim`) |
+| uid | not recorded | 1001 (non-root) |
+
+No interpreter reporting 3.12.13 is reachable from uid 1001 (only `/usr/bin/python3` =
+3.12.3; `/usr/local/bin/python3` absent), and `/usr/lib/python3.12/glob.py` is the real
+stdlib on this box. Every `3.12.13` and `/usr/local/lib/python3.12/glob.py` figure in this
+document is therefore a witness to a *different environment revision*, not to the box this
+repository now runs on. The same reading applies to `bench/results/baseline.md`, whose
+recorded generating machine was additionally **x86_64 / nproc 224** (this box is
+aarch64 / nproc 2) — see that file's Provenance block.
+
+### 0.2 Claims about committed artifacts, corrected
+
+- **E3 — the committed capture's `_meta` (measured 2026-09-21):** `python` **3.12.3**,
+  `executable` `/usr/bin/python3`, `glob_module` **`/usr/lib/python3.12/glob.py`**,
+  `uid` **1001**, `cases` **139**, `generated_utc` `2026-09-21T20:02:21+00:00`.
+  E3's parenthetical `_meta.python == 3.12.13` and
+  `_meta.glob_module == /usr/local/lib/python3.12/glob.py` **no longer hold**.
+  E3's *conclusion* — the capture is clean (stdlib) and not shim-poisoned — **still
+  holds**, and is now directly checkable: `glob_module` is a stdlib path, not
+  `/opt/fastglob-shim/glob.py`. The capture has since been re-recorded on this box, which
+  is the freshness gate (`compare.py`) doing its job rather than a regression.
+- **Case count 133 → 139.** `cases.json` and the committed capture both record **139**
+  cases today (6 were added in the 2026-09-21 maintenance pass, including the previously
+  uncovered fused `**/SEG1/SEG2` shape). Every `133` / `133/133` in this document is a
+  2026-08-27 snapshot of the suite size.
+- **E9 — "byte-identical today" is no longer true; the drift E9 warned about has
+  materialized.** Measured 2026-09-21: repo `shim/glob.py` is **199** lines vs deployed
+  `/opt/fastglob-shim/glob.py` **129**; `FASTGLOB_SHIM_LOUD` appears **2×** in the repo shim
+  and **0×** in the deployed one, and `diff -q` exits non-zero. They are different
+  revisions of different shapes. Re-deploying the repo shim is an operator action and was
+  deliberately **not** taken.
+
+- **NUL error message TEXT differs from stdlib (measured 2026-09-21).** `fastglob.glob()`
+  raises `ValueError: fastglob: embedded null byte in PATTERN` (and `... in --root-dir`
+  when the NUL is in `root_dir`); stdlib raises the bare `embedded null byte`. The
+  exception TYPE matches, the message text does not. `docs/compatibility-contract.md` is
+  silent on message text (verified: no `message` and no `null byte` clause), so this is
+  recorded as an observation, not as a contract violation. `README.md:142` and
+  `docs/api.md:201` previously quoted the stdlib wording as if it were the engine's.
+
+### 0.3 Remedy status R1–R8 (measured 2026-09-21)
+
+| ID | Status | Evidence |
+|---|---|---|
+| R1 `capture.py` shim-neutral oracle | **LANDED** | path-strip + `importlib` resolution in `tests/oracle/capture.py` (fallback at `:68`); capture `_meta.glob_module` is a stdlib path |
+| R2 `bench.py` true-stdlib baseline | **LANDED** | verified under `PYTHONPATH=/opt/fastglob-shim`: resolves `/usr/lib/python3.12/glob.py`, while a naive `import glob` yields `/opt/fastglob-shim/glob.py` |
+| R3 `translate = None` pollution | **LANDED** | `shim/glob.py:81-89` binds only when non-`None`; measured: repo shim → `hasattr(glob, "translate") == False`, matching stdlib 3.12 (`hasattr` also `False`) |
+| R4 deploy/rollback automation | **LANDED** (2026-09-21) | `tools/deploy.sh` + `make deploy`/`rollback`/`deploy-status`/`deploy-verify`/`wheel`. `apply` runs the full `make test` suite before the swap and aborts on red — the remedy's `make compat` gate was **widened** on purpose, since compat alone left fmt/clippy/self-test/shim-parity ungated. Mutation requires `DRY_RUN=0`; the default `DRY_RUN=1` runs the gate, prints the plan, mutates nothing. Both artifacts are snapshotted into `/var/backups/fastglob/<stamp>` before the first mutation and restored automatically on any later failure. Verified end-to-end in a throwaway venv (`SHIM_DIR=/tmp/...`, `PYTHONS=<venv>/bin/python3`, `BACKUP_ROOT=/tmp/...`), never against the live box: apply → 6/6 live assertions green; rollback → both artifacts back to absent; forced install failure → the pre-existing shim restored byte-exactly (sha256 `3f0f2f6e1a50…`). `deploy-status` is read-only and exits 1 on drift. Deliberately **not** automated: the provisioner-owned injection files, and PyPI publishing. |
+| R5 track `shim/` | **LANDED** | `git ls-files shim/` → 2 files (`glob.py`, `gnu_glob.py`) |
+| R6 doc rot | **LANDED** (2026-09-21) | The residual set was **5, not the 3** first listed: `docs/architecture.md:43` (dependency row — now the in-process `fastglob._core` call at `__init__.py:141`), `docs/architecture.md:44` (**`fd_DUPFD` dropped** from the kernel row: `F_DUPFD` existed only for the removed `pass_fds` transport and now survives only as a comment at `pyo3_ext.rs:11`), `docs/architecture.md:50` (Python deps — no `subprocess`/`fcntl`/`pathlib`; verified 0 hits), `docs/api.md:201` (the NUL verdict comes from the in-process `_core` call, not a subprocess arg check), `README.md:142` ("The Python wrapper meets this boundary in `subprocess`"). Same pass corrected the table's drifted citations (`main.rs:277`→`:310`; `lib.rs:18-19`→`:23,26,42-43`; `walk.rs:380-422`→`:429,453,462-464,494,500`; `walk.rs:169-368`→ per-syscall lines), `__init__.py` 462→**465** lines, `api.md` `grep "16 passed"`→`"17 passed"`, binary 385→**452KB**, `walk.rs:177-208`→`:245-260`. |
+| R7 `pathlib` not accelerated (contract note) | **LANDED** (2026-09-21) | Documented as `docs/compatibility-contract.md` **§8.11**, version-split because this document's premise is 3.13+/3.14-only: on **3.12 `pathlib` never imports `glob`** at all (it uses its own `_WildcardSelector`, `pathlib.py:190`; `Path.glob` at `:1083`; `path_cls._scandir` at `:167`), and `_StringGlobber` does not exist before 3.13. `Path.glob("**/*.txt")` measured identical under the deployed shim, the repo shim, and no shim. The 3.14 row is inherited from E8 and labelled not-re-measured (no 3.13/3.14 interpreter reachable from uid 1001). |
+| R8 `gnu_glob.__file__` truthful | **LANDED** | `shim/gnu_glob.py:40` sets `globals()["__file__"] = _mod.__file__` |
+
+### 0.4 What this correction does NOT change
+
+The design verdict stands unchanged: ONE Rust engine + ONE thin proxy shim, with the
+shim's stdlib fallback as the required escape hatch (§3, §6, §6.1). No dual engine.
+E3/E4/E5's measurement-integrity argument is unaffected by the environment drift above —
+it was always about *which* module a harness imports, and R1/R2 have since fixed exactly
+that.
+
 ## 1. Runtime oracle identification (REQUIRED witnesses)
 
 The oracle is the *installed* stdlib `glob`, identified at runtime — never hard-coded.
@@ -33,6 +113,9 @@ $ python3 -c 'import gnu_glob; print(gnu_glob.__file__)'   # escape hatch (loads
 # True stdlib oracle path: /usr/local/lib/python3.12/glob.py
 # Verified: glob._engine == 'fastglob'  (wheel present in /usr/local/lib/python3.12/dist-packages/fastglob)
 ```
+
+*(2026-09-21: this transcript records the 2026-08-27 environment revision. Re-measured
+values for this box — 3.12.3, stdlib at `/usr/lib/python3.12/glob.py` — are in §0.1.)*
 
 ### 3.14 (uv venv — the operator's broken path)
 ```
@@ -101,7 +184,8 @@ The defects found are in the DEPLOYMENT/MEASUREMENT layer, not the engine.
   `tests/oracle/capture.py:44` does `import glob as _glob`. In the deployed env this is
   the shim. The committed `capture.json` is currently **clean**
   (`_meta.glob_module == /usr/local/lib/python3.12/glob.py`, `_meta.python == 3.12.13`,
-  `tree_manifest_sha256` present) — VERIFIED. But re-running `make oracle-capture` NOW
+  `tree_manifest_sha256` present) — VERIFIED **as of 2026-08-27**; both quoted values are
+  superseded (§0.2). But re-running `make oracle-capture` NOW
   would record shim/fastglob output as the "oracle" and silently invert the 133-case
   differential (false green / F-OVERCONFIDENCE). The freshness gate (compare.py:179-229)
   only compares the committed capture to the live interpreter+tree; it does NOT detect
@@ -164,6 +248,11 @@ The defects found are in the DEPLOYMENT/MEASUREMENT layer, not the engine.
   oracle but has NO shim-deploy or rollback target. The shim only falls back at import
   time if `import fastglob` fails (engine missing) — NOT if fastglob returns wrong
   results. Label: OBSERVED.
+  *Superseded 2026-09-21:* R4 landed (§0.3). `make deploy` / `make rollback` /
+  `make deploy-status` now exist; the gate is the full `make test` suite, and the drift
+  E9 and R4 describe is now reported by a command instead of only by prose. The
+  observation above still holds for the *shim itself*: no in-code rollback was added to
+  `shim/glob.py`, and none should be.
 
 ---
 
@@ -245,14 +334,17 @@ python3 tests/oracle/capture.py && python3 -c 'import json;print(json.load(open(
 python3 -c 'import glob; print(hasattr(glob,"translate"))'        # expected: False (AttributeError on access)
 # On 3.14: expected True and callable (stdlib translate)
 
-# R4 — rollback
-make deploy   # only swaps if `make compat` is green; `make rollback` restores stdlib
+# R4 — deployment + rollback (implemented 2026-09-21; see §0.3)
+make deploy             # DRY_RUN=1 default: runs `make test`, prints the plan, mutates nothing
+DRY_RUN=0 make deploy   # gate green -> snapshot both artifacts -> install wheel -> sync shim -> verify live
+DRY_RUN=0 make rollback # restore the newest snapshot (FROM=<stamp> to choose one)
+make deploy-status      # read-only; exit 1 when the deployed artifacts drift from this tree
 
 # R5 — shim tracked
 git status --short shim/   # expected: tracked (A  shim/glob.py, A shim/gnu_glob.py)
 
 # Full gate
-make compat    # 133 executed / 133 passed / 0 failed (candidate vs TRUE stdlib oracle)
+make compat    # 139 executed / 139 passed / 0 failed (candidate vs TRUE stdlib oracle)
 make test      # cargo test + compat + python package
 make bench     # in-process (true stdlib baseline) + end-to-end, separate tables
 ```
@@ -268,7 +360,8 @@ make bench     # in-process (true stdlib baseline) + end-to-end, separate tables
 - "Shim proxy seamless for glob/iglob/escape/has_magic": **VERIFIED** (E6).
 - "One engine, no dual engine": **VERIFIED**, design preserved (§3, §6.1).
 - "Docs match reality": **FALSE / OBSERVED** (E10).
-- "Auto-rollback implemented": **FALSE / OBSERVED** (E11).
+- "Auto-rollback implemented": **FALSE / OBSERVED** (E11) — *superseded 2026-09-21*: implemented
+  as `tools/deploy.sh` (gated swap + automatic snapshot restore); see §0.3 R4.
 
 *No source files were modified. This document is the deliverable; remedies R1–R8 are
 proposed designs with file:line witnesses, not applied changes.*

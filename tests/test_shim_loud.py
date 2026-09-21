@@ -89,8 +89,10 @@ class ShimSilentByDefault(unittest.TestCase):
         # importable in-process (pure-Python surface works without the
         # compiled _core for this attribute check).
         with tempfile.TemporaryDirectory(prefix="fastglob_shim_test_") as shim_dir:
-            with open(os.path.join(shim_dir, "glob.py"), "wb") as f:
-                f.write(open(SHIM_SRC, "rb").read())
+            with open(SHIM_SRC, "rb") as src, open(
+                os.path.join(shim_dir, "glob.py"), "wb"
+            ) as f:
+                f.write(src.read())
             e = dict(os.environ)
             e.pop("FASTGLOB_SHIM_LOUD", None)
             e["PYTHONPATH"] = os.pathsep.join([shim_dir, os.path.join(REPO, "python")])
@@ -150,14 +152,22 @@ class ShimLoudOptIn(unittest.TestCase):
     def test_stdlib_fallback_loud_verdict(self):
         # Real fault injection: hide the fastglob package so the shim MUST
         # fall back to stdlib — the loud line must say so explicitly.
+        #
+        # The injection is the PYTHONPATH below (shim dir only, so `fastglob`
+        # is unreachable), plus the sanity probe that proves it. The old
+        # `FASTGLOB_HIDE=1` env var that also used to be set here was a NO-OP:
+        # no code path in shim/glob.py reads it (F-010). Removed rather than
+        # left in place, because a dead injection switch makes the test read as
+        # though it isolates something it does not.
         with tempfile.TemporaryDirectory(prefix="fastglob_shim_test_") as shim_dir:
-            with open(os.path.join(shim_dir, "glob.py"), "wb") as f:
-                f.write(open(SHIM_SRC, "rb").read())
+            with open(SHIM_SRC, "rb") as src, open(
+                os.path.join(shim_dir, "glob.py"), "wb"
+            ) as f:
+                f.write(src.read())
             e = dict(os.environ)
             e.pop("FASTGLOB_SHIM_LOUD", None)
             e["FASTGLOB_SHIM_LOUD"] = "1"
             e["PYTHONPATH"] = shim_dir
-            e["FASTGLOB_HIDE"] = "1"
             # SANITY for this injection: confirm fastglob is NOT importable
             probe = subprocess.run(
                 [sys.executable, "-c", "import fastglob"],

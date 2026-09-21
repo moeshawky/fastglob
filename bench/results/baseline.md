@@ -3,16 +3,44 @@
 Generated: 2026-08-19T16:47:02+0000 by bench/bench.py
 Scale factor at generation: 1.0
 
+> **Provenance — re-measured 2026-09-21. These numbers were NOT produced on the machine
+> that ships this repository.** They are a measurement *record*, kept because
+> benchmark-discipline §11 requires a baseline to carry the conditions it was measured
+> under. Do not quote them as this machine's performance, and do not diff them against a
+> run on another architecture — §12's speedup ratio is only meaningful between runs on
+> the SAME machine. Measured differences (both machines' conditions recorded):
+>
+> | condition | generating machine (2026-08-19) | current box (measured 2026-09-21) |
+> |---|---|---|
+> | architecture / host | x86_64, `d03433004e87` | **aarch64**, `forge-hive` |
+> | kernel | 6.6.143+ | 6.17.0-1020-oracle |
+> | nproc | 224 | **2** |
+> | python | `/usr/local/bin/python3` (3.12.13) | `/usr/bin/python3` (3.12.3) |
+> | glob module | `/usr/local/lib/python3.12/glob.py` | `/usr/lib/python3.12/glob.py` |
+> | df free (GB) | 10.2 | 23 |
+> | git head | `5668b01` | `aacfa41` |
+> | uid | not recorded by bench.py | 1001 (non-root) |
+>
+> Both paths in the `python` / `glob module` rows are **absent on this box** (verified:
+> `/usr/local/bin/python3` MISSING, `/usr/local/lib/python3.12/glob.py` MISSING). `5668b01`
+> is **not a commit in this repository's available history** (7 commits, non-shallow,
+> `fc087c7`…`aacfa41`), so this record is not traceable to any state of this repo —
+> regenerate it here with `make bench` (README §Baseline) rather than quoting it.
+>
+> `bench/bench.py` is shim-neutral: under `PYTHONPATH=/opt/fastglob-shim` it resolves the
+> TRUE stdlib oracle `/usr/lib/python3.12/glob.py` (verified 2026-09-21), where a naive
+> `import glob` would instead resolve to the shim (`/opt/fastglob-shim/glob.py`).
+
 ## Environment
 
 - nproc: 224
 - uname: Linux d03433004e87 6.6.143+ #1 SMP Fri Aug 14 11:09:17 UTC 2026 x86_64 GNU/Linux
 - filesystem: ext2/ext3
 - df free (GB): 10.2
-- python: /usr/local/bin/python3 (3.12.13)
-- glob module: /usr/local/lib/python3.12/glob.py
+- python: /usr/local/bin/python3 (3.12.13)   # generating machine; absent here (this box: 3.12.3 at /usr/bin/python3)
+- glob module: /usr/local/lib/python3.12/glob.py   # generating machine; absent here (this box: /usr/lib/python3.12/glob.py)
 - include_hidden supported: True
-- git head: 5668b01
+- git head: 5668b01   # not a commit in this repository's history — see Provenance
 
 ## Tree stats (manifest vs live recount)
 
@@ -92,5 +120,5 @@ median/p95/min/max in ms; n = timed reps; nres = results (first rep). `-` = time
 
 ## Observations (this run)
 
-- Symlink self-cycle under `**`: oracle TERMINATED (VERIFIED). n_results=6734, median=69.059 ms. A self-cycle follows exactly 41 symlinked levels before stopping (OBSERVED on this build; undocumented — Level C, not a requirement).
+- Symlink self-cycle under `**`: oracle TERMINATED (VERIFIED). n_results=6734, median=69.059 ms. A self-cycle follows exactly 41 symlinked levels before stopping (OBSERVED on this build; undocumented — Level C, not a requirement). **Corroborated 2026-09-21 on the aarch64 box:** the verbatim port (`FASTGLOB_NO_FUSED=1`) also stops at 41 levels (deepest materialized path 82 chars), i.e. this one figure is a kernel `SYMLOOP_MAX` artifact and is architecture-independent, matching `generate.py`'s SYMLOOP_MAX=40 note. The *timings* above remain machine-local.
 - Cache state: one long-lived interpreter, fixed ROW order — candidate runs must reuse the same order for equivalence.

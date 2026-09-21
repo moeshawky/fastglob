@@ -87,7 +87,17 @@ try:
         _translate = getattr(_stdlib_glob, "translate", None)
     if _translate is not None:
         translate = _translate
-    __all__ = getattr(_fg, "__all__", getattr(_stdlib_glob, "__all__", ["glob", "iglob", "escape", "has_magic"]))
+    # `__all__` describes THIS module's real, bound surface — never the engine
+    # PACKAGE's. Adopting `fastglob.__all__` verbatim advertised `match`, which
+    # the shim deliberately does not bind (stdlib `glob` has no such attribute),
+    # so `from glob import *` raised
+    # `AttributeError: module 'glob' has no attribute 'match'` — breaking the
+    # invisibility guarantee for a plain standard statement. Mirror the stdlib
+    # contract instead: every name stdlib exports is bound here (the eager copy
+    # below supplies the stdlib attributes, and glob/iglob/escape/has_magic are
+    # bound explicitly above), so `__all__ == stdlib.__all__` is satisfiable by
+    # construction. `has_magic` stays bound-but-unexported, exactly as in stdlib.
+    __all__ = list(getattr(_stdlib_glob, "__all__", ["glob", "iglob", "escape"]))
     __version__ = getattr(_fg, "__version__", "fastglob-shim")
     _engine = "fastglob"
     _shim_version = "0.1.3"
@@ -124,9 +134,11 @@ except Exception as _e:
             globals()[_name] = getattr(_stdlib_glob, _name)
         except Exception:
             pass
-    # ensure essential names (in case dir() missed them)
+    # ensure essential names (in case dir() missed them). Mirrored from stdlib,
+    # so `from glob import *` is satisfiable by construction — same reasoning as
+    # the fastglob branch above.
     try:
-        __all__ = _stdlib_glob.__all__  # type: ignore[no-redef]
+        __all__ = list(_stdlib_glob.__all__)  # type: ignore[no-redef]
     except Exception:
         pass
     try:

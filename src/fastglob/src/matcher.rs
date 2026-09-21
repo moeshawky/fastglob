@@ -1,5 +1,5 @@
 //! fnmatch-exact pattern matching — a faithful port of the `translate()`
-//! semantics of the installed `/usr/local/lib/python3.12/fnmatch.py` (Level A
+//! semantics of the installed `/usr/lib/python3.12/fnmatch.py` (Level A
 //! source of truth), executed as a deterministic program instead of a regex.
 //!
 //! The translated regex has a fixed shape that this module exploits directly:
@@ -9,8 +9,8 @@
 //! ```
 //!
 //! where each `F` is a fixed-length element sequence (no stars inside).
-//! Semantics (verified differentially vs `fnmatch.fnmatchcase`, 400k random
-//! + targeted edge table, `out/dev/diff_match.py`):
+//! Semantics (verified differentially against stdlib `fnmatch.fnmatchcase` by the
+//! committed, reproducible `tests/test_match_bytes_oracle.py`; see also §8.10):
 //!
 //!   * PREFIX must match the name start, element-for-element.
 //!   * Each interior `(?>.*?F)` commits to the EARLIEST position where `F`
@@ -36,6 +36,17 @@
 
 /// Decode a byte string into "characters": UTF-8 code points, with each
 /// invalid byte mapped to `0xDC00 | b` (Python surrogateescape parity).
+///
+/// This is the `os.fsdecode` model, deliberately: the `glob()` walk shares this
+/// decoder and must decode the filesystem's raw bytes the way Python does. It is
+/// NOT `fnmatch`'s bytes model — stdlib `_compile_pattern` decodes bytes patterns
+/// as ISO-8859-1 (one code point per BYTE). On a name with a valid multi-byte
+/// UTF-8 sequence the models disagree on CHARACTER COUNT (`?`, `[seq]`, `[!seq]`)
+/// AND on CLASS MEMBERSHIP — one orders code points, the other bytes: `[\x80-\xff]`
+/// matches the byte `\xc3` for stdlib but never the decoded `U+00E9` here.
+/// Bounded and intentional; PINNED by `tests/test_match_bytes_oracle.py` +
+/// `docs/compatibility-contract.md` §8.10. Do NOT "fix" it here: latin-1 would
+/// corrupt `glob()`'s non-ASCII handling, which is the primary surface.
 ///
 /// Input: `bytes: &[u8]` — arbitrary byte string (may contain invalid UTF-8)
 /// Output: `Vec<u32>` — decoded code points, one per character (valid UTF-8 -> code point, invalid -> 0xDC00|b)
@@ -558,8 +569,8 @@ pub fn escape(pathname: &[u8]) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
-// Unit tests — edge cases verified against the installed fnmatch (3.12.13)
-// via out/dev/diff_match.py (400k random + targeted table, 0 mismatches).
+// Unit tests — edge cases verified against the installed fnmatch (3.12.3)
+// plus tests/test_match_bytes_oracle.py (59,860 exhaustive + 20,000 random).
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -754,8 +765,8 @@ mod tests {
         // absorb the leading "a/")
         assert!(!m("a/b.rs", "b.rs"));
         assert!(m("b.rs", "b.rs")); // literal pattern matches literally
-        // ** == * (two stars) in fnmatch semantics; zero-width requires
-        // the literal separators to collapse, e.g. a//c for a/**/c
+                                    // ** == * (two stars) in fnmatch semantics; zero-width requires
+                                    // the literal separators to collapse, e.g. a//c for a/**/c
         assert!(m("a/b/c", "a/**/c"));
         assert!(m("a/b/d/c", "a/**/c"));
         assert!(!m("a/c", "a/**/c")); // a/*c needs >=1 char between /

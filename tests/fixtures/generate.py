@@ -8,15 +8,17 @@ Idempotent: wipes and rebuilds the tree from scratch on every run, so two
 consecutive runs produce byte-identical structure. A manifest hash
 (path, type, mode, symlink-target, size) is printed for idempotency auditing.
 
-Design notes (evidence from the installed oracle, Python 3.12.13):
+Design notes (evidence from the installed oracle, Python 3.12.3):
 - Symlink cycles (cycle/self -> .., mutual/x <-> mutual/y) are REQUIRED (§8.5).
   CPython 3.12's ** traversal terminates on this kernel via ELOOP at
   SYMLOOP_MAX=40 symlink hops (scandir OSError silently pruned in _iterdir).
   Depth 41 is an OBSERVED kernel artifact, not a requirement — the hard
   requirement is only that no call hangs (capture enforces a 10s timeout).
-- errors/unreadable is chmod 000. As uid 0 it stays readable (verified);
-  as non-root it raises PermissionError. The capture records what actually
-  happens plus the uid — no error policy is fabricated (§8.6).
+- errors/unreadable is chmod 000 (mode 0, owner uid 1001). As non-root it is
+  NOT readable: scandir raises PermissionError, which stdlib glob silently
+  prunes to []. The committed capture was recorded as uid 1001 and its results
+  are the non-root ones (re-measured 2026-09-21) — no error policy is
+  fabricated (§8.6).
 - The generator chmods errors/unreadable back to 755 before wiping, so a
   non-root re-run can still rebuild.
 """
@@ -151,7 +153,8 @@ def build():
         p = os.path.join(TREE, "weird", rel)
         with open(p, "wb") as f:
             f.write(content)
-    # §8.6: unreadable directory (000). Readable as uid 0 (verified).
+    # §8.6: unreadable directory (000). As non-root (uid 1001) the capture sees
+    # scandir PermissionError -> []; no error policy is fabricated.
     os.chmod(os.path.join(TREE, "errors", "unreadable"), 0o000)
 
 

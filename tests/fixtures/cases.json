@@ -641,7 +641,7 @@
     "kind": "glob",
     "pattern": "errors/unreadable/*",
     "kwargs": {},
-    "note": "chmod-000 dir. uid 0 (VERIFIED): readable, secret.txt listed. Non-root would PermissionError. Capture records uid - no policy fabricated."
+    "note": "chmod-000 dir (mode 0, owner uid 1001). Committed capture ran as uid 1001 -> scandir PermissionError -> [] (stdlib prunes OSError). Re-measured 2026-09-21: mode=0 owner=ubuntu:ubuntu uid=1001. Supersedes a 'uid 0: readable, secret.txt listed' note that contradicted this case's own recorded result."
   },
   {
     "id": "e02",
@@ -681,7 +681,7 @@
     "kind": "glob",
     "pattern": "errors/unreadable/secret.txt",
     "kwargs": {},
-    "note": "literal file inside 000 dir: _lexists -> matched (uid 0)"
+    "note": "literal file inside 000 dir: _lexists -> NOT matched ([]). lstat of the child needs search (x) on the parent, which mode 0 denies. Measured as uid 1001 (previously noted 'matched (uid 0)')."
   },
   {
     "id": "e07",
@@ -699,7 +699,7 @@
     "kwargs": {
       "recursive": true
     },
-    "note": "recursive into 000 dir (uid 0: traverses; includes self entry)"
+    "note": "recursive into 000 dir: yields only the self entry ('errors/unreadable/'); no traversal into it (scandir denied as uid 1001). Previously noted 'uid 0: traverses'."
   },
   {
     "id": "w01",
@@ -771,7 +771,7 @@
     "kind": "glob",
     "pattern": "weird/star\\*and\\?bracket\\[.txt",
     "kwargs": {},
-    "note": "backslash is LITERAL on POSIX (OBSERVED 3.12.13, not an escape): pattern's backslashes do not exist in the name -> [] ; positive metachar match covered by w17"
+    "note": "backslash is LITERAL on POSIX (OBSERVED 3.12.3, not an escape): pattern's backslashes do not exist in the name -> [] ; positive metachar match covered by w17"
   },
   {
     "id": "w10",
@@ -849,7 +849,7 @@
     "kwargs": {
       "root_dir": "basic"
     },
-    "note": "root_dir=basic as STARTING POINT (OBSERVED 3.12.13): pattern 'basic/*' resolved inside basic/ -> no basic/basic/* -> expect []; results are relative to root_dir"
+    "note": "root_dir=basic as STARTING POINT (OBSERVED 3.12.3): pattern 'basic/*' resolved inside basic/ -> no basic/basic/* -> expect []; results are relative to root_dir"
   },
   {
     "id": "k02",
@@ -1118,7 +1118,7 @@
     "kind": "translate",
     "pattern": "*",
     "kwargs": {},
-    "note": "glob.translate('*') - NOT EXPOSED in Python 3.12.13 (added 3.13; VERIFIED via dir(glob)); capture records skipped_not_exposed"
+    "note": "glob.translate('*') - NOT EXPOSED in Python 3.12.3 (added 3.13; VERIFIED via dir(glob)); capture records skipped_not_exposed"
   },
   {
     "id": "x11",
@@ -1126,7 +1126,7 @@
     "kind": "translate",
     "pattern": "a*b",
     "kwargs": {},
-    "note": "glob.translate - not exposed in 3.12.13; skipped_not_exposed"
+    "note": "glob.translate - not exposed in 3.12.3; skipped_not_exposed"
   },
   {
     "id": "x12",
@@ -1134,7 +1134,7 @@
     "kind": "translate",
     "pattern": "**",
     "kwargs": {},
-    "note": "glob.translate - not exposed in 3.12.13; skipped_not_exposed"
+    "note": "glob.translate - not exposed in 3.12.3; skipped_not_exposed"
   },
   {
     "id": "x13",
@@ -1142,7 +1142,7 @@
     "kind": "translate",
     "pattern": "[a-z]",
     "kwargs": {},
-    "note": "glob.translate - not exposed in 3.12.13; skipped_not_exposed"
+    "note": "glob.translate - not exposed in 3.12.3; skipped_not_exposed"
   },
   {
     "id": "x14",
@@ -1150,7 +1150,7 @@
     "kind": "translate",
     "pattern": "?",
     "kwargs": {},
-    "note": "glob.translate - not exposed in 3.12.13; skipped_not_exposed"
+    "note": "glob.translate - not exposed in 3.12.3; skipped_not_exposed"
   },
   {
     "id": "x15",
@@ -1158,7 +1158,7 @@
     "kind": "translate",
     "pattern": "a\\*b",
     "kwargs": {},
-    "note": "glob.translate(escaped) - not exposed in 3.12.13; skipped_not_exposed"
+    "note": "glob.translate(escaped) - not exposed in 3.12.3; skipped_not_exposed"
   },
   {
     "id": "x16",
@@ -1175,5 +1175,67 @@
     "pattern": "basic/file.py",
     "kwargs": {},
     "note": "no metachars: escape identity; glob(escaped) -> [basic/file.py]"
+  },
+  {
+    "id": "r16",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "**/literal/sub",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "FUSED SHAPE (c): ** plus TWO literal trailing segments. cases.json had ZERO patterns of this shape before r16-r18, so a defect in fast_walk_literal2 was invisible to the suite (F-008/lead fused differential)."
+  },
+  {
+    "id": "r17",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "**/chain/one",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "FUSED SHAPE (c) across a symlinked ancestor: same two-literal-segment form, but the intermediate directory is reached through symlinks/chain. CYCLE-ZONE, same class as r12/r13: a top-level ** traverses the symlinks/ cycle subtree, so the two engines differ ONLY in how many cycle/self/ repetitions they enumerate (engine 138 paths vs oracle 41) — measured, and verified equal once cycle-redundant segments are normalised away (cycle-zone protocol, docs/compatibility-contract.md §8.5a, Level C). The shape-(c) logic itself is exercised cleanly by r16 and r18, which are symlink-free.",
+    "unspecified_zone": true
+  },
+  {
+    "id": "r18",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "**/d/e",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "FUSED SHAPE (c) ending on a directory (not a file): literal trailing segments, result is the directory itself."
+  },
+  {
+    "id": "r19",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "**/*b*",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "FUSED SHAPE (b): ** plus one MAGIC trailing segment with a wildcard on BOTH sides (basic/A,basic/ab,abc,a/b,a/c/b,a/d/e/b all in scope). CYCLE-ZONE for the same reason as r17: the broad ** sweeps symlinks/ and the engines differ only in cycle/self/ repetition count (engine 156 paths vs oracle 59) — the non-cycle core is identical under the zone protocol.",
+    "unspecified_zone": true
+  },
+  {
+    "id": "r20",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "a/**/**",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "MULTIPLICITY: two overlapping ** in a symlink-FREE subtree (a/), so the same path is reachable through several expansion chains and duplicates MUST be preserved. Counter multiset, never a set."
+  },
+  {
+    "id": "r21",
+    "section": "8.4",
+    "kind": "glob",
+    "pattern": "a/**/*/b",
+    "kwargs": {
+      "recursive": true
+    },
+    "note": "FUSED SHAPE PREFIX**SUFFIX with an intervening magic component, over the symlink-free a/ subtree: exercises the suffix walk while preserving a/b, a/c/b and a/d/e/b multiplicity."
   }
 ]

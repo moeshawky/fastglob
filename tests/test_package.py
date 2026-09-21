@@ -218,7 +218,7 @@ class MatchContract(TreeFixture):
     """
 
     # (pattern, path, expected) — every expected value VERIFIED against the
-    # live stdlib fnmatch oracle (python 3.12.13) before being written here;
+    # live stdlib fnmatch oracle (python 3.12.3) before being written here;
     # re-derived independently in test_agrees_with_fnmatch_oracle.
     ACCEPTANCE_TABLE = [
         ("**/vendor/**", "a/vendor/b.rs", True),   # ticket acceptance example

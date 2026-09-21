@@ -36,9 +36,13 @@ Documented mechanics (keep these in mind when using in hot loops):
 from __future__ import annotations
 
 import os
-from typing import Iterator, cast, overload
+from pathlib import Path
+from typing import TYPE_CHECKING, Iterator, cast, overload
 
 from . import _core
+
+if TYPE_CHECKING:
+    from types import ModuleType
 
 __all__ = ["escape", "glob", "has_magic", "iglob", "match"]
 
@@ -321,7 +325,9 @@ def match(pattern: str | os.PathLike[str], path: str | os.PathLike[str]) -> bool
 
 
 @overload
-def match(pattern: bytes | os.PathLike[bytes], path: bytes | os.PathLike[bytes]) -> bool: ...
+def match(
+    pattern: bytes | os.PathLike[bytes], path: bytes | os.PathLike[bytes]
+) -> bool: ...
 
 
 def match(pattern: _PathArg, path: _PathArg) -> bool:
@@ -345,6 +351,20 @@ def match(pattern: _PathArg, path: _PathArg) -> bool:
     pattern with a bytes path raises "cannot use a bytes pattern on a
     string-like object", and vice versa).
 
+    str mode is fnmatch-exact. In BYTES mode the engine decodes with
+    ``os.fsdecode`` semantics (UTF-8 + surrogateescape, shared with the
+    ``glob`` walk) while stdlib ``fnmatch`` decodes bytes patterns as
+    ISO-8859-1, so for a path containing a valid multi-byte UTF-8 sequence the
+    two disagree on character count and on class membership/ordering -- the
+    latter because one model orders code points and the other orders bytes, so
+    a byte range can match for stdlib while never matching the decoded code
+    point (``match(b"?", b"\xc3\xa9")`` -> True; stdlib -> False, and
+    ``match(b"*[\xc0-\xc3]*", b"\xc3\xa9")`` -> False; stdlib -> True). That
+    is bounded and deliberate — not a bug to "fix" here, since latin-1 would
+    corrupt ``glob``'s non-ASCII handling. Pinned by
+    ``tests/test_match_bytes_oracle.py``; see
+    ``docs/compatibility-contract.md`` section 8.10.
+
     Example (each verdict verified against the running stdlib ``fnmatch``)::
 
         fastglob.match("**/vendor/**", "a/vendor/b.rs")  # -> True
@@ -357,7 +377,6 @@ def match(pattern: _PathArg, path: _PathArg) -> bool:
         path: pathname to test (str/bytes/PathLike) — pure data
     Output:
         bool — True iff ``path`` matches ``pattern``
-    Errors:
     Errors:
         TypeError if pattern/path is not str/bytes/PathLike (via fsencode)
         TypeError on str/bytes type MISMATCH between pattern and path
@@ -391,11 +410,10 @@ def match(pattern: _PathArg, path: _PathArg) -> bool:
 # shim's own ``import fastglob`` is fragile). We instead load the TRUE stdlib
 # ``glob`` the same path-strip way capture.py / gnu_glob do, so the value is
 # always the real stdlib ``translate`` and the dependency is explicit.
-def _real_stdlib_glob_module():
+def _real_stdlib_glob_module() -> ModuleType | None:
     """Return the true stdlib ``glob`` module, never the fastglob shim proxy."""
     import importlib.machinery as _ilm
     import importlib.util as _iu
-    import os as _os
     import sys as _sys
 
     # Exclude EVERY directory holding a shim/glob.py copy, not just the
@@ -406,17 +424,22 @@ def _real_stdlib_glob_module():
     #     package is imported BY the shim, `glob` is present but partially
     #     initialized, and its __file__ names the (possibly ad-hoc) shim
     #     copy that must be excluded.
-    _shim_dirs = {"/opt/fastglob-shim"}
+    # ``Path.resolve()`` (not ``os.path.abspath``) so a shim dir reached through a
+    # symlink is still excluded: abspath normalizes lexically and would treat
+    # /tmp/link-to-shim as distinct from /opt/fastglob-shim, which is exactly the
+    # ad-hoc-copy case this set exists to catch. Verified equivalent on
+    # symlink-free paths (the deployed layout and the test harnesses).
+    _shim_dirs = {Path("/opt/fastglob-shim")}
     _inflight = _sys.modules.get("glob")
     _inflight_file = getattr(_inflight, "__file__", None)
     if _inflight_file:
-        _shim_dirs.add(_os.path.dirname(_os.path.abspath(_inflight_file)))
+        _shim_dirs.add(Path(_inflight_file).resolve().parent)
     _orig = list(_sys.path)
     try:
+        # The ``p != ""`` guard already excludes the empty entry, so no
+        # ``or cwd`` fallback is needed (it was dead code).
         _sys.path = [
-            p
-            for p in _orig
-            if p != "" and _os.path.abspath(p or _os.getcwd()) not in _shim_dirs
+            p for p in _orig if p != "" and Path(p).resolve() not in _shim_dirs
         ]
         _spec = _ilm.PathFinder.find_spec("glob", _sys.path)
         # RE-ENTRANCY GUARD: when this package is being imported BY the shim
@@ -429,12 +452,13 @@ def _real_stdlib_glob_module():
         # location (stdlib is always outside any shim dir by construction).
         if _spec and _spec.loader:
             _origin = _spec.origin or ""
-            if _origin and _os.path.abspath(_origin).startswith(
-                tuple(_os.path.abspath(d) + _os.sep for d in _shim_dirs)
+            _resolved = str(Path(_origin).resolve()) if _origin else ""
+            if _resolved and any(
+                _resolved.startswith(f"{_d}{os.sep}") for _d in _shim_dirs
             ):
                 return None
             _mod = _iu.module_from_spec(_spec)
-            _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+            _spec.loader.exec_module(_mod)
             return _mod
     except Exception:
         return None
@@ -447,6 +471,6 @@ _real_glob = _real_stdlib_glob_module()
 if _real_glob is not None:
     _translate_fn = getattr(_real_glob, "translate", None)
     if _translate_fn is not None:
-        translate = _translate_fn  # type: ignore[assignment]
+        translate = _translate_fn
         if "translate" not in __all__:
-            __all__ = list(__all__) + ["translate"]
+            __all__ = [*list(__all__), "translate"]

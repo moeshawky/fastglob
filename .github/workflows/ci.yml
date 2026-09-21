@@ -24,9 +24,12 @@ jobs:
         with:
           # The compat freshness gate (tests/compat/compare.py, C15) requires
           # the RUNNING interpreter to equal the capture's interpreter exactly
-          # (_meta.python == 3.12.13). An unpinned runner default (3.13.x)
-          # fails the gate; the oracle is this pinned stdlib glob.
-          python-version: "3.12.13"
+          # (`_meta.python`). The committed capture records **3.12.3** — see
+          # tests/oracle/capture.json `_meta`. This pin therefore MUST be
+          # 3.12.3: pinning any OTHER 3.12.x made the gate raise and the compat
+          # job fail by construction. If the oracle is ever re-captured on a
+          # different interpreter, change this pin in the SAME commit.
+          python-version: "3.12.3"
       - name: Format check
         run: cargo fmt --check --manifest-path src/Cargo.toml
       - name: Clippy (deny warnings, all targets)
@@ -52,17 +55,45 @@ jobs:
           fi
       - name: Oracle capture (uid-consistent for this runner)
         run: make oracle-capture
-        # The committed oracle capture was recorded as uid 0; the fixture's
+        # The committed oracle capture was recorded as uid 1001 (non-root) on
+        # Python 3.12.3 — see tests/oracle/capture.json `_meta`. The fixture's
         # 000-mode errors/unreadable directory (§8.6) is readable to root but
-        # not to the non-root runner user, so the manifest stamp and the
+        # not to a non-root runner, so the manifest stamp and the
         # unreadable-dir results are uid-dependent by design (no error policy
         # is fabricated — docs/compatibility-contract.md §8.6). Re-capturing
         # the oracle under the SAME user that runs the engine keeps the
-        # differential uid-consistent (VERIFIED non-root: 133/133).
-      - name: Compat suite (133 cases, multiset)
+        # differential uid-consistent (VERIFIED uid 1001: 139/139).
+      - name: Compat suite (139 cases, multiset)
         run: make compat
       - name: Self-test oracle
         run: python3 tests/compat/compare.py --self-test
+      - name: Matcher differential vs stdlib fnmatch
+        # Committed, reproducible replacement for the old "400k differential via
+        # out/dev/diff_match.py" claim — out/ is gitignored and that file is
+        # absent, so the citation could not be re-executed. Also pins the one
+        # declared bytes-mode divergence (docs/compatibility-contract.md §8.10).
+        run: python3 tests/test_match_bytes_oracle.py
+      - name: Fused vs recursive differential (+ FASTGLOB_NO_FUSED bypass)
+        # Fused fast path vs the verbatim CPython port on a purpose-built tree,
+        # driving the CLI in separate subprocesses because the bypass latches
+        # once per process. Also proves the bypass is wired via the
+        # symlink-cycle discriminator. Any non-cycle divergence = fused-path
+        # regression; cycle depth divergence is declared Level C (§8.5a).
+        run: python3 tests/test_fused_differential.py
+      - name: Deploy driver (syntax + rollback guards)
+        # tools/deploy.sh is the only shipped shell script, and its rollback path
+        # is the only code in this repo that can delete an installed package. It
+        # was gated NOWHERE: a syntax error or a lost authority guard would
+        # surface on the day an operator deploys. Same gate as `make test`.
+        run: |
+          bash -n tools/deploy.sh
+          python3 tests/test_deploy_guard.py
+      - name: Shim suite (routing observability + namespace parity)
+        # F-009: tests/test_shim_loud.py and tests/test_shim_parity.py were
+        # gated NOWHERE in CI — `make test` ran them locally, CI never did, so
+        # the shim's documented deploy surface could break without a red
+        # build. `make shim-test` is the same gate the Makefile uses.
+        run: make shim-test
 
   # Python package quality gate (python-standards G1-G6) for python/.
   # Single leg pinned to the oracle interpreter, same justification as the
@@ -83,7 +114,9 @@ jobs:
       - name: Install Python (pinned to the oracle version)
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12.13"
+          # Must equal tests/oracle/capture.json `_meta.python` (3.12.3) — the
+          # compat freshness gate compares the running interpreter exactly.
+          python-version: "3.12.3"
       - name: Build engine
         run: make build
       - name: Install dev stack (editable, quality extras) + uv

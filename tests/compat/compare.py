@@ -393,7 +393,7 @@ def compare_case(rec, cand_map):
 
 def zone_self_test():
     """Synthetic zone cases proving the cycle-zone protocol fires both ways.
-    Not part of the 133; reported separately and hard-gated on the self-test
+    Not part of the 139; reported separately and hard-gated on the self-test
     exit code. Returns (n_ok, n_total)."""
     rec = {
         "case_id": "zz01",
@@ -401,7 +401,7 @@ def zone_self_test():
         "kind": "glob",
         "pattern": "symlinks/**/v1.txt",
         "kwargs": {"recursive": True},
-        "note": "synthetic self-test zone case (not part of the 133)",
+        "note": "synthetic self-test zone case (not part of the 139)",
         "unspecified_zone": True,
         "result": [
             "basic/a",
@@ -507,7 +507,7 @@ def main():
             print(f"  classification: {detail['cls']}")
     zone_ok = zone_total = 0
     if args.self_test:
-        print("\nzone self-test (synthetic; not part of the 133):")
+        print("\nzone self-test (synthetic; not part of the 139):")
         zone_ok, zone_total = zone_self_test()
 
     print(f"\n{n_pass + n_fail} executed / {n_pass} passed / {n_fail} failed  [{label}]")
