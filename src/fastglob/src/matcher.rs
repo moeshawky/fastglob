@@ -730,6 +730,40 @@ mod tests {
     }
 
     #[test]
+    fn whole_path_match_semantics() {
+        // Whole-path contract for the exposed match API (ticket 001): the
+        // matcher applies to the WHOLE path string — `*`/`**` cross `/` —
+        // and every expectation here is VERIFIED against the installed
+        // fnmatch (3.12.13) oracle, not assumed.
+        assert!(m("a/vendor/b.rs", "**/vendor/**"));
+        // `*` needs >= 1 char, so bare "vendor" does NOT match **/vendor/**
+        assert!(!m("vendor", "**/vendor/**"));
+        // ...and the trailing `/**` needs chars AFTER "vendor/" too
+        assert!(!m("x/vendor", "**/vendor/**"));
+        assert!(!m("a/vendor", "**/vendor/**"));
+        assert!(!m("a/node_modules/b.rs", "**/vendor/**"));
+        assert!(m("a/vendor/b", "**/vendor/**"));
+        // * crosses / but the pattern is WHOLE-STRING anchored: trailing
+        // fixed text must land at the very end
+        assert!(!m("a/x/b.rs", "a*b")); // b.rs != b at the end
+        assert!(m("a/x/b", "a*b"));
+        assert!(m("axb", "a*b"));
+        // bare `*` = (?s:.*) — matches EVERYTHING, `/` included
+        assert!(m("a/b", "*"));
+        // but a LITERAL pattern must match the whole string (no stars to
+        // absorb the leading "a/")
+        assert!(!m("a/b.rs", "b.rs"));
+        assert!(m("b.rs", "b.rs")); // literal pattern matches literally
+        // ** == * (two stars) in fnmatch semantics; zero-width requires
+        // the literal separators to collapse, e.g. a//c for a/**/c
+        assert!(m("a/b/c", "a/**/c"));
+        assert!(m("a/b/d/c", "a/**/c"));
+        assert!(!m("a/c", "a/**/c")); // a/*c needs >=1 char between /
+        assert!(m("a//c", "a/**/c"));
+        assert!(m("a/c", "a?c")); // ? crosses / (any single char)
+    }
+
+    #[test]
     fn has_magic_and_escape() {
         assert!(has_magic(b"*"));
         assert!(has_magic(b"?"));

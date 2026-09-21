@@ -591,8 +591,8 @@ fn try_fast(
     // pattern ends with '/', which the shape checks below reject.
     let mut spans: Vec<(usize, usize)> = Vec::new();
     let mut s = 0usize;
-    for i in 0..pattern.len() {
-        if pattern[i] == b'/' {
+    for (i, &b) in pattern.iter().enumerate() {
+        if b == b'/' {
             spans.push((s, i));
             s = i + 1;
         }
@@ -712,7 +712,6 @@ fn fast_single_component(root: &[u8], pat: &[u8], opts: Opts) -> Vec<Vec<u8>> {
 /// level); past [`FAST_MAX_FD_DEPTH`] levels the subtree falls back to the
 /// path-based walker (identical semantics, slower) so EMFILE can never
 /// silently prune a deep-but-legitimate tree.
-
 /// Depth beyond which fused walks switch a subtree to the path-based
 /// fallback walker (bounds simultaneously-held directory fds).
 const FAST_MAX_FD_DEPTH: usize = 256;
@@ -848,7 +847,7 @@ fn collect_frontier(
 /// Errors: never panics itself; worker panics resume unwinding
 fn fan_out_walks(
     leaves: Vec<Vec<u8>>,
-    walk_one: &(dyn Fn(&[u8], &mut Vec<Vec<u8>>, &mut Vec<Vec<u8>>) + Sync),
+    walk_one: &WalkOneFn<'_>,
 ) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     let mut deep_all: Vec<Vec<u8>> = Vec::new();
     let mut out_all: Vec<Vec<u8>> = Vec::new();
@@ -941,6 +940,10 @@ fn fast_open_root(root: &[u8], prefix: &[u8]) -> Option<(i32, Vec<u8>)> {
         Some((fd, prefix.to_vec()))
     }
 }
+
+/// Fused subtree-walker callback shape: `(leaf_rel, deep_out, hits_out)` —
+/// the per-leaf entry point `fan_out_walks` runs on its workers.
+type WalkOneFn<'a> = dyn Fn(&[u8], &mut Vec<Vec<u8>>, &mut Vec<Vec<u8>>) + Sync + 'a;
 
 /// Deferred path-based work for subtrees beyond the fd-depth cap: the exact
 /// pre-cap walker semantics, driven by relative path strings.
@@ -1091,19 +1094,20 @@ fn fast_walk_suffix(prefix: &[u8], suffix: &[u8], root: &[u8], opts: Opts) -> Ve
     );
     let (deep, hits) = fan_out_walks(
         std::mem::take(&mut leaves),
-        &|rel, d, o| match fast_open_root(root, rel) {
-            Some((cfd, _)) => walk_fd_suffix(
-                cfd,
-                rel,
-                0,
-                star,
-                prog.as_ref(),
-                skip_hidden_matches,
-                descend_hidden,
-                d,
-                o,
-            ),
-            None => {}
+        &|rel, d, o| {
+            if let Some((cfd, _)) = fast_open_root(root, rel) {
+                walk_fd_suffix(
+                    cfd,
+                    rel,
+                    0,
+                    star,
+                    prog.as_ref(),
+                    skip_hidden_matches,
+                    descend_hidden,
+                    d,
+                    o,
+                );
+            }
         },
     );
     out.extend(hits);
@@ -1266,9 +1270,10 @@ fn fast_walk_literal2(
     );
     let (deep, hits) = fan_out_walks(
         std::mem::take(&mut leaves),
-        &|rel, d, o| match fast_open_root(root, rel) {
-            Some((cfd, _)) => walk_fd_literal2(cfd, rel, 0, seg1, seg2, descend_hidden, d, o),
-            None => {}
+        &|rel, d, o| {
+            if let Some((cfd, _)) = fast_open_root(root, rel) {
+                walk_fd_literal2(cfd, rel, 0, seg1, seg2, descend_hidden, d, o);
+            }
         },
     );
     out.extend(hits);

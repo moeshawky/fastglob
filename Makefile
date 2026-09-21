@@ -1,7 +1,7 @@
 # Fast Glob — project commands (docs/final-gate.md §26).
 #
 #   make build    release-build the engine (src/target/release/fastglob)
-#   make test     cargo test + full compat suite
+#   make test     cargo test + full compat suite + package tests + shim suite
 #   make compat   engine candidate capture + multiset differential vs oracle
 #   make oracle-capture  re-capture the stdlib oracle snapshot (freshness gate)
 #
@@ -21,7 +21,7 @@ export CARGO_TARGET_DIR := $(abspath src/target)
 export FASTGLOB_BIN := $(abspath src/target/release/fastglob)
 PY := python3
 
-.PHONY: build test compat oracle-capture bench profile clean
+.PHONY: build test compat oracle-capture bench profile clean shim-test
 
 build:
 	cd src && cargo build --release
@@ -30,6 +30,15 @@ test: build
 	cd src && cargo test
 	$(MAKE) compat
 	$(PY) tests/test_package.py
+	$(MAKE) shim-test
+
+shim-test: build
+	# Ticket 001 item 2: shim routing observability (FASTGLOB_SHIM_LOUD).
+	# Loads the shim file from disk in fresh interpreters — no engine or
+	# pip install needed beyond `build` (stdlib-fallback verdicts are
+	# asserted too). Runs AFTER the package tests so a fastglob import
+	# failure surfaces there first, with a clearer error.
+	$(PY) tests/test_shim_loud.py
 
 compat: build
 	$(PY) tests/fixtures/generate.py

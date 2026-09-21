@@ -76,7 +76,7 @@ Covered families (`docs/compatibility-contract.md:8`):
 - 8.6 Filesystem errors (unreadable, disappearing — pruned)
 - 8.7 Pathological filenames (spaces, Unicode, newline, byte-exact via `OsStr` end-to-end `lib.rs:14`)
 - 8.8 `root_dir` / `dir_fd` / `include_hidden` (`walk.rs:248-368` `listdir`/`scan_fd`)
-- 8.9 `escape` / `has_magic` (`matcher.rs:515-543`), `translate` deferred (not exposed)
+- 8.9 `escape` / `has_magic` (`matcher.rs:515-543`), `translate` deferred (not exposed); `match(pattern, path)` single-path match exposed 0.1.4 with the SAME fnmatch semantics (whole-path, `*` crosses `/`) — oracle: stdlib `fnmatch.fnmatchcase`
 
 Ordering is documented-unspecified: tests compare `Counter` multisets, never ordered lists, never plain sets. Duplicate results from overlapping `**` expansions are preserved.
 
@@ -99,7 +99,20 @@ import fastglob
 fastglob.glob("*.py", recursive=True, include_hidden=False)
 list(fastglob.iglob("a/**/b.txt", recursive=True))
 fastglob.escape("a*b")  # -> "a[*]b"
+fastglob.match("**/vendor/**", "a/vendor/b.rs")  # -> True (no filesystem access)
 ```
+
+### `fastglob.match(pattern, path)` (0.1.4)
+
+Single-path match with NO filesystem access — the path is pure data (never opened, never stat'ed, never walked). Semantics are the engine's fnmatch-3.12 matcher applied to the WHOLE path string (stdlib `fnmatch` parity, oracle-verified):
+
+- `*` and `**` cross `/` (they are NOT component-aware): `match("**/vendor/**", "a/vendor/b.rs")` → `True`
+- `*` needs ≥1 char: `match("**/vendor/**", "vendor")` → `False`; a bare `*` pattern matches ANY path (`(?s:.*)`)
+- literals must span the whole path: `match("b.rs", "a/b.rs")` → `False`
+- type contract: str pattern → str comparison, bytes pattern → bytes comparison; cross-type raises `TypeError` (stdlib `fnmatch` parity)
+- pattern guards mirror `glob`: NUL → `ValueError`, >8192 bytes / >512 components → `RuntimeError "pattern too long"`; the PATH argument is unguarded data
+
+**Source:** `python/fastglob/__init__.py` (`match`), `src/fastglob/src/pyo3_ext.rs` (`r#match`), tests `tests/test_package.py::MatchContract` (oracle-agreed acceptance table)
 
 The engine runs in-process through `fastglob._core` (PyO3 module built from the same Rust crate); since 0.1.1 the package no longer reads `FASTGLOB_BIN` and spawns no subprocess. The `fastglob` CLI binary remains available for direct use.
 **Source:** `python/fastglob/__init__.py` (`_core` in-process calls), `src/fastglob/src/pyo3_ext.rs` (engine bindings)
@@ -229,7 +242,17 @@ ls -lh src/target/release/fastglob
 ## Transparent Replacement (planned)
 
 Status: DEPLOYED — drop-in `glob` acceleration via `PYTHONPATH=/opt/fastglob-shim` injection (`shim/glob.py`, 0.1.3) with `gnu_glob` escape hatch and auto-rollback on suite failure. Order: engine → 133/133 → bench/profile → shim. (See `docs/architecture.md` Deployment.)
-**Source:** `AGENTS.md` operator clarification 2026-08-20
+
+**Observable routing (0.1.4):** the shim is silent by default (invisibility guarantee unchanged). Set `FASTGLOB_SHIM_LOUD` to any non-empty value and the shim emits ONE stderr line at first interception naming the engine that answered:
+
+```
+fastglob-shim: intercepting 'glob' (shim 0.1.3, engine: fastglob 0.1.3)
+# or, when the engine is missing:
+fastglob-shim: intercepting 'glob' (shim 0.1.3, engine: STDLIB FALLBACK (fastglob not importable))
+```
+
+Never touches stdout; never raises; exactly one line per process. Tests: `tests/test_shim_loud.py`.
+**Source:** `AGENTS.md` operator clarification 2026-08-20; loudness switch per `.tickets/001-expose-match-api.md` item 2
 
 ## Project Commands (Makefile)
 

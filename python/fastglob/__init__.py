@@ -40,7 +40,7 @@ from typing import Iterator, cast, overload
 
 from . import _core
 
-__all__ = ["escape", "glob", "has_magic", "iglob"]
+__all__ = ["escape", "glob", "has_magic", "iglob", "match"]
 
 __version__ = "0.1.3"
 
@@ -316,6 +316,68 @@ def has_magic(pathname: _PathArg) -> bool:
     return _core.has_magic(_fs(pathname))
 
 
+@overload
+def match(pattern: str | os.PathLike[str], path: str | os.PathLike[str]) -> bool: ...
+
+
+@overload
+def match(pattern: bytes | os.PathLike[bytes], path: bytes | os.PathLike[bytes]) -> bool: ...
+
+
+def match(pattern: _PathArg, path: _PathArg) -> bool:
+    """Test whether ``path`` matches ``pattern`` without touching the filesystem.
+
+    Single-path match over the engine's fnmatch-3.12 semantics applied to
+    the WHOLE path string — the path is pure data (never opened, never
+    stat'ed, never split). This is NOT the component-wise walk of ``glob``:
+
+    * ``*`` and ``**`` both cross ``/`` (so ``match("**/vendor/**",
+      "a/vendor/b.rs")`` is True);
+    * ``*`` needs >= 1 char (so ``match("**/vendor/**", "vendor")`` is
+      False) and a bare ``*`` pattern matches ANY path, ``/`` included;
+    * literal patterns match the WHOLE path (``match("b.rs", "a/b.rs")``
+      is False) — ``has_magic``-consistent.
+
+    Type contract (stdlib parity with ``fnmatch``): the PATTERN decides the
+    comparison mode — str pattern -> str comparison, bytes pattern -> bytes
+    comparison. A path whose type disagrees with the pattern raises
+    TypeError, exactly as stdlib ``fnmatch`` does (verified: mixing a str
+    pattern with a bytes path raises "cannot use a bytes pattern on a
+    string-like object", and vice versa).
+
+    Example (each verdict verified against the running stdlib ``fnmatch``)::
+
+        fastglob.match("**/vendor/**", "a/vendor/b.rs")  # -> True
+        fastglob.match(b"*.py", b"x.py")                  # -> True
+        fastglob.match("**/vendor/**", "vendor")          # -> False (* needs >=1 char)
+        fastglob.match("b.rs", "a/b.rs")                  # -> False (whole-path literal)
+
+    Inputs:
+        pattern: glob pattern (str/bytes/PathLike)
+        path: pathname to test (str/bytes/PathLike) — pure data
+    Output:
+        bool — True iff ``path`` matches ``pattern``
+    Errors:
+    Errors:
+        TypeError if pattern/path is not str/bytes/PathLike (via fsencode)
+        TypeError on str/bytes type MISMATCH between pattern and path
+            (stdlib fnmatch parity)
+        ValueError if pattern contains an embedded NUL (stdlib parity)
+        RuntimeError if pattern is longer than 8192 bytes or has more than
+            512 path components ("pattern too long")
+    """
+    pattern_wants_bytes = _wants_bytes(pattern)
+    if pattern_wants_bytes != _wants_bytes(path):
+        # stdlib fnmatch parity (VERIFIED live): re mixes a str pattern with
+        # bytes data (or vice versa) -> TypeError; match the verdict shape.
+        raise TypeError(
+            "cannot use a bytes pattern on a string-like object"
+            if pattern_wants_bytes
+            else "cannot use a string pattern on a bytes-like object"
+        )
+    return _core.match(_fs(pattern), _fs(path))
+
+
 # --- ``glob.translate`` (CPython 3.13+ standard-library surface) ------------
 # Mirror it on interpreters that provide it so fastglob's *public* contract
 # tracks the running Python. VERIFIED: 3.14 stdlib exposes ``glob.translate``;
@@ -333,14 +395,44 @@ def _real_stdlib_glob_module():
     """Return the true stdlib ``glob`` module, never the fastglob shim proxy."""
     import importlib.machinery as _ilm
     import importlib.util as _iu
+    import os as _os
     import sys as _sys
 
-    _shim_dir = "/opt/fastglob-shim"
+    # Exclude EVERY directory holding a shim/glob.py copy, not just the
+    # deployed /opt/fastglob-shim: ad-hoc copies (test harnesses importing
+    # the shim from a temp dir) must not be picked up either. Anchors:
+    #   * the deployed shim dir, always;
+    #   * the dir of an IN-FLIGHT `glob` module in sys.modules — when this
+    #     package is imported BY the shim, `glob` is present but partially
+    #     initialized, and its __file__ names the (possibly ad-hoc) shim
+    #     copy that must be excluded.
+    _shim_dirs = {"/opt/fastglob-shim"}
+    _inflight = _sys.modules.get("glob")
+    _inflight_file = getattr(_inflight, "__file__", None)
+    if _inflight_file:
+        _shim_dirs.add(_os.path.dirname(_os.path.abspath(_inflight_file)))
     _orig = list(_sys.path)
     try:
-        _sys.path = [p for p in _orig if p != _shim_dir and p != ""]
+        _sys.path = [
+            p
+            for p in _orig
+            if p != "" and _os.path.abspath(p or _os.getcwd()) not in _shim_dirs
+        ]
         _spec = _ilm.PathFinder.find_spec("glob", _sys.path)
+        # RE-ENTRANCY GUARD: when this package is being imported BY the shim
+        # (import glob -> shim -> import fastglob), `glob` sits in sys.modules
+        # PARTIALLY INITIALIZED — its origin is the shim, exec not finished.
+        # find_spec would still find a stdlib spec and exec_module would be
+        # fine for stdlib, but if find_spec resolves to ANOTHER shim copy
+        # (two shim dirs on the path), exec'ing it re-enters the shim from
+        # inside the shim. Skip any spec whose origin is not the true stdlib
+        # location (stdlib is always outside any shim dir by construction).
         if _spec and _spec.loader:
+            _origin = _spec.origin or ""
+            if _origin and _os.path.abspath(_origin).startswith(
+                tuple(_os.path.abspath(d) + _os.sep for d in _shim_dirs)
+            ):
+                return None
             _mod = _iu.module_from_spec(_spec)
             _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
             return _mod

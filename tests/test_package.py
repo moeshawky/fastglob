@@ -209,6 +209,113 @@ class DirFdContract(TreeFixture):
             os.close(fd)
 
 
+class MatchContract(TreeFixture):
+    """Ticket 001 item 1: fastglob.match(pattern, path) — single-path match,
+    no filesystem access. Oracle: stdlib fnmatch.fnmatch (same fnmatch-3.12
+    translate semantics the engine ports; os.path.normcase is identity on
+    Linux so fnmatch.fnmatch == fnmatch.fnmatchcase here — VERIFIED below
+    against the running interpreter rather than assumed).
+    """
+
+    # (pattern, path, expected) — every expected value VERIFIED against the
+    # live stdlib fnmatch oracle (python 3.12.13) before being written here;
+    # re-derived independently in test_agrees_with_fnmatch_oracle.
+    ACCEPTANCE_TABLE = [
+        ("**/vendor/**", "a/vendor/b.rs", True),   # ticket acceptance example
+        ("**/vendor/**", "a/vendor/b", True),
+        ("**/vendor/**", "vendor", False),          # `*` needs >= 1 char
+        ("**/vendor/**", "a/vendor", False),        # trailing /** needs chars too
+        ("**/vendor/**", "a/node_modules/b.rs", False),
+        ("a*b", "a/x/b", True),                     # * crosses /
+        ("a*b", "a/x/b.rs", False),                 # whole-string anchored
+        ("*", "a/b", True),                         # bare * == (?s:.*)
+        ("b.rs", "a/b.rs", False),                  # literal must span whole path
+        ("b.rs", "b.rs", True),                     # literal matches literally
+        ("*.py", "x.py", True),
+        ("", "", True),                             # empty pattern, empty path
+        ("", "x", False),
+        ("a/**/c", "a/b/c", True),
+        ("a/**/c", "a/b/d/c", True),
+        ("a/**/c", "a/c", False),                   # a/*c needs >=1 char
+        ("a/**/c", "a//c", True),                   # empty component collapses
+        ("we\nird*.txt", "we\nird✓.txt", True),     # byte-exact arbitrary names
+        ("café-✓.txt", "café-✓.txt", True),         # non-ASCII round-trip
+        ("a?c", "a/c", True),                       # ? crosses / (same fnmatch)
+        ("[!a]y", "by", True),
+        ("[!a]y", "ay", False),
+    ]
+
+    def test_acceptance_examples(self):
+        for pat, path, want in self.ACCEPTANCE_TABLE:
+            got = fastglob.match(pat, path)
+            self.assertIs(type(got), bool, f"match({pat!r}, {path!r}) -> {type(got).__name__}")
+            self.assertEqual(got, want, f"match({pat!r}, {path!r})")
+
+    def test_agrees_with_fnmatch_oracle(self):
+        # Compat discipline: re-derive every expectation from the RUNNING
+        # interpreter's fnmatch (the oracle), not from this table.
+        import fnmatch
+
+        norm = os.path.normcase("x") == "x"  # identity on Linux
+        for pat, path, _want in self.ACCEPTANCE_TABLE:
+            oracle = fnmatch.fnmatchcase(path, pat)
+            if norm:
+                self.assertEqual(
+                    fnmatch.fnmatch(path, pat), oracle, "normcase not identity?"
+                )
+            self.assertEqual(
+                fastglob.match(pat, path), oracle, f"match({pat!r}, {path!r}) vs fnmatch"
+            )
+
+    def test_no_filesystem_access_for_missing_paths(self):
+        # Pure data: paths that do not exist are still matched literally —
+        # no I/O, no traversal, no existence check (fnmatch semantics).
+        self.assertTrue(fastglob.match("/definitely/not/here/*.txt", "/definitely/not/here/f.txt"))
+        self.assertTrue(fastglob.match("*", "/definitely/not/here/f.txt"))
+        # literal prefix must span the whole path: "no/such/dir/*.txt" vs a
+        # path starting "/definitely" is False on the FIRST character
+        self.assertFalse(fastglob.match("no/such/dir/*.txt", "/definitely/not/here/f.txt"))
+        self.assertFalse(fastglob.match("/definitely/not/here", "/definitely/not/here/f.txt"))
+
+    def test_literal_pattern_needs_no_magic(self):
+        self.assertTrue(fastglob.match("plain.txt", "plain.txt"))
+        self.assertFalse(fastglob.match("plain.txt", "other.txt"))
+        self.assertFalse(fastglob.has_magic("plain.txt"))  # has_magic-consistent
+
+    def test_type_contract_str_vs_bytes(self):
+        self.assertIs(type(fastglob.match("*.py", "x.py")), bool)
+        # bytes pattern + bytes path: bytes comparison, same verdicts
+        self.assertTrue(fastglob.match(b"**/vendor/**", b"a/vendor/b.rs"))
+        self.assertTrue(fastglob.match(b"*", b"a/b"))  # bare * == (?s:.*)
+        self.assertFalse(fastglob.match(b"b", b"a/b"))  # literal whole-path
+        # Cross-type: stdlib fnmatch RAISES TypeError (verified live:
+        # "cannot use a string pattern on a bytes-like object") — match it.
+        with self.assertRaises(TypeError):
+            fastglob.match("*.py", b"x.py")
+        with self.assertRaises(TypeError):
+            fastglob.match(b"*.py", "x.py")
+
+    def test_pathlike_arguments_accepted(self):
+        self.assertTrue(fastglob.match("**/vendor/**", Path("a/vendor/b.rs")))
+        self.assertTrue(fastglob.match(Path("**/vendor/**"), "a/vendor/b.rs"))
+
+    def test_match_misuse_mirrors_glob_guards(self):
+        # Same verdicts as glob/escape (pattern guards); PATH is data, so a
+        # NUL in the PATH alone must NOT raise.
+        with self.assertRaises(ValueError):
+            fastglob.match("a\0b", "x")
+        with self.assertRaises(RuntimeError) as ctx:
+            fastglob.match("a" * 9000, "x")
+        self.assertIn("pattern too long", str(ctx.exception))
+        with self.assertRaises(RuntimeError) as ctx2:
+            fastglob.match("/".join(["a"] * 600), "x")
+        self.assertIn("pattern too long", str(ctx2.exception))
+        # path is never a pattern: NUL/long PATH is matched as data (the
+        # NUL lives ONLY in the path here — pattern stays clean)
+        self.assertTrue(fastglob.match("a*b*", "a\0bx"))
+        self.assertFalse(fastglob.match("a*b*", "x\0ba"))
+
+
 class MisuseThroughEngine(TreeFixture):
     """Engine-side guards surfaced as RuntimeError through the in-process core."""
 

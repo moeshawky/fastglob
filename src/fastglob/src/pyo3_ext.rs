@@ -169,6 +169,37 @@ fn has_magic(pattern: Vec<u8>) -> bool {
     crate::matcher::has_magic(&pattern)
 }
 
+/// In-process single-path match: does `path` match `pattern`?
+///
+/// Semantics: the existing engine matcher (`crate::matcher::matches`, the
+/// fnmatch-3.12 translate port) applied to the WHOLE path string — no
+/// filesystem access, no component-by-component glob walk. Consequences of
+/// that documented contract (matches stdlib fnmatch/glob.translate, NOT the
+/// component walk of `glob()`):
+///   * `*` crosses `/` (`match("a*b", "a/x/b")` is true)
+///   * `**` is two stars — identical to `*` (also crosses `/`)
+///   * pattern components must match path components 1:1 — a pattern
+///     without `/` never matches a path containing `/`
+///
+/// The path argument is matched as pure DATA (never opened, never stat'ed,
+/// never split) — this is the function the loss-ledger-style callers want.
+///
+/// Inputs (byte-exact; the Python package has already fsencoded both):
+///   pattern: `Vec<u8>` — glob pattern
+///   path: `Vec<u8>` — the pathname to test
+/// Output: `PyResult<bool>` — true iff `path` matches `pattern`
+/// Errors: ValueError/RuntimeError per the module-level contract (NUL in
+/// pattern, pattern too long) — same guards as [`glob`]/[`escape`]; the
+/// PATH argument carries no guards (it is data, not a pattern or fs handle).
+#[pyfunction]
+fn r#match(pattern: Vec<u8>, path: Vec<u8>) -> PyResult<bool> {
+    check_pattern(&pattern)?;
+    Ok(crate::matcher::matches(
+        &crate::matcher::compile(&pattern),
+        &path,
+    ))
+}
+
 /// Module `fastglob._core` — the in-process engine surface.
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -176,6 +207,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(iglob, m)?)?;
     m.add_function(wrap_pyfunction!(escape, m)?)?;
     m.add_function(wrap_pyfunction!(has_magic, m)?)?;
+    m.add_function(wrap_pyfunction!(r#match, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

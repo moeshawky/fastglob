@@ -19,6 +19,7 @@ Mechanics:
 """
 from __future__ import annotations
 
+import os as _os
 import sys as _sys
 
 # --- load stdlib glob WITHOUT shim on path (escape hatch) ---
@@ -26,11 +27,23 @@ _stdlib_glob = None
 try:
     import importlib.util as _ilu
     import importlib.machinery as _ilm
-    _shim_dir = "/opt/fastglob-shim"
-    # find stdlib glob spec excluding shim dir
+    # Exclude EVERY directory containing a shim copy (deployed
+    # /opt/fastglob-shim AND any ad-hoc copy on sys.path, e.g. test
+    # harnesses importing the shim from a temp dir), not just the one
+    # hardcoded path — otherwise a second shim dir would recurse into
+    # itself via find_spec. The marker file identifies shim dirs.
+    _shim_dirs = {
+        "/opt/fastglob-shim",
+        _os.path.dirname(_os.path.abspath(__file__)),
+    }
     _orig_path = list(_sys.path)
     try:
-        _sys.path = [p for p in _sys.path if p != _shim_dir and p != ""]
+        _sys.path = [
+            p
+            for p in _sys.path
+            if p != ""
+            and _os.path.abspath(p or _os.getcwd()) not in _shim_dirs
+        ]
         _spec = _ilm.PathFinder.find_spec("glob", _sys.path)
         if _spec and _spec.loader:
             import importlib.util as _iu2
@@ -77,6 +90,7 @@ try:
     __all__ = getattr(_fg, "__all__", getattr(_stdlib_glob, "__all__", ["glob", "iglob", "escape", "has_magic"]))
     __version__ = getattr(_fg, "__version__", "fastglob-shim")
     _engine = "fastglob"
+    _shim_version = "0.1.3"
 
     # --- seamless proxy: eager copy of all stdlib attributes not already overridden ---
     # Keep module dunders from this shim ( __spec__, __file__, __cached__, __loader__, etc.)
@@ -120,6 +134,7 @@ except Exception as _e:
     except Exception:
         pass
     _engine = "stdlib"  # type: ignore[no-redef]
+    _shim_version = "0.1.3"
 
     def __getattr__(_name: str):  # type: ignore[no-redef]
         try:
@@ -131,6 +146,38 @@ except Exception as _e:
         return sorted(set(globals().keys()) | set(dir(_stdlib_glob)))
     # optional debug: uncomment to trace fallback
     # import warnings; warnings.warn(f"fastglob shim fallback to stdlib: {_e}", RuntimeWarning, stacklevel=2)
+
+# --- observable routing (ticket 001 item 2) -------------------------------
+# Silent by default — agents keep seeing nothing (invisibility guarantee).
+# When FASTGLOB_SHIM_LOUD is set to any non-empty value, ONE stderr line at
+# first interception (module import = the moment stdlib `import glob` is
+# first routed here) names the engine that answered, so benchmark/compat
+# runs can tell which engine produced the results. Emitted after the
+# engine choice above, so the line reports what ACTUALLY answers
+# ("fastglob <ver>" or "stdlib fallback").
+#
+# EXACTLY ONCE per execution: sys.modules serves repeat `import glob` from
+# the SAME module object, and this shim never re-executes itself (the
+# stdlib loader above strips every shim dir, so find_spec cannot land back
+# on a shim copy). The _LOUD_DONE flag additionally guards any in-execution
+# re-entry. External re-execs (importlib.reload) are caller-owned.
+if (
+    _os.environ.get("FASTGLOB_SHIM_LOUD", "")
+    and not globals().get("_LOUD_DONE", False)
+):
+    try:
+        if _engine == "fastglob":
+            _engine_desc = f"fastglob {getattr(_fg, '__version__', 'unknown')}"
+        else:
+            _engine_desc = "STDLIB FALLBACK (fastglob not importable)"
+        _sys.stderr.write(
+            f"fastglob-shim: intercepting 'glob' (shim {_shim_version}, "
+            f"engine: {_engine_desc})\n"
+        )
+        _sys.stderr.flush()
+        _LOUD_DONE = True
+    except Exception:
+        pass
 
 # re-export stdlib extras that fastglob shim does not override (e.g. __doc__) if not already set
 try:
