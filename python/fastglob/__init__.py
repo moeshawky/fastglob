@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 __all__ = ["escape", "glob", "has_magic", "iglob", "match"]
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 # Filesystem path arguments: str, bytes, or a PathLike whose ``__fspath__``
 # returns str or bytes (stdlib parity — CPython glob accepts all three).
@@ -255,8 +255,10 @@ def iglob(
         next(fastglob.iglob("*"))   # -> str
 
     Inputs: same as ``glob``.
-    Output: Iterator[str] or Iterator[bytes] — lazily yields each match
-    (materialized via one in-process engine call)
+    Output: Iterator[str] or Iterator[bytes] — yields each match after one
+    in-process engine call materializes the complete result list. This is
+    API-compatible with the stdlib iterator shape, but not streaming: peak
+    memory is the same as ``glob()`` for a given pattern.
     Errors: same as ``glob``
     """
     items = _call(

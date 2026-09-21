@@ -4,6 +4,33 @@
 placeholder created during the public-snapshot usability pass (2026-08-23);
 the repository previously had no changelog.*
 
+## 0.1.4 - 2026-09-22
+
+### Added
+
+- Released `fastglob.match(pattern, path)` in the Python package, with the
+  documented fnmatch-compatible whole-path contract and bytes-mode boundary.
+- Added public release badges, installation guidance, registry naming notes,
+  and links to the API and compatibility documentation.
+
+### Changed
+
+- Kept the stdlib-compatible `iglob` API while documenting its 0.1.x behavior:
+  one native call materializes the full result list before iteration.
+- Documented Level C symlink-cycle behavior: recursive walks terminate, while
+  exact duplicate cycle-path counts are unspecified and may differ between the
+  fused path, verbatim fallback, and CPython.
+- Made `make build` produce the PyO3 extension beside the source package, so a
+  clean checkout can run `make compat` without relying on an ignored leftover
+  shared object.
+- Updated the Python distribution, Rust crate, native shim, locks, and public
+  documentation to version `0.1.4`.
+
+### Fixed
+
+- Replaced stale public version, binary-size, and interpreter-path claims in
+  the release-facing documentation.
+
 ## 0.1.3
 
 - Shim: seamless proxy for all stdlib `glob` private symbols (`_StringGlobber`, `_PathGlobber`, `_no_recurse_symlinks` via eager copy + PEP 562) — fixes `pathlib` `ImportError` on Python 3.14 and makes `PYTHONPATH=/opt/fastglob-shim` invisible to `3.14 pathlib`.

@@ -72,7 +72,11 @@ PYTHONS ?= python3
 DEPLOY := DRY_RUN=$(DRY_RUN) SHIM_DIR=$(SHIM_DIR) PYTHONS="$(PYTHONS)"
 
 build:
-	cd src && cargo build --release
+	cd src && cargo build --release --features pyo3
+	# `make compat` imports the source-tree package directly. Build the PyO3
+	# cdylib and place it beside __init__.py so a clean checkout does not rely
+	# on an accidental ignored `_core.abi3.so` left by a prior wheel build.
+	cp src/target/release/libfastglob.so python/fastglob/_core.abi3.so
 
 lint: build
 	# Local lint gate: same flags CI uses. Fails fast on first error.

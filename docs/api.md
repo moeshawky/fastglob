@@ -6,7 +6,7 @@
 
 ---
 
-## Rust Library `fastglob` (`src/fastglob/src/lib.rs:1-56`, `Cargo.toml` version 0.1.3, `libc 0.2`)
+## Rust Library `fastglob` (`src/fastglob/src/lib.rs:1-56`, `Cargo.toml` version 0.1.4, `libc 0.2`)
 
 ### `fastglob::glob(pathname, root_dir, dir_fd, recursive, include_hidden) -> Vec<OsString>`
 
@@ -101,7 +101,7 @@ pub struct Opts { pub recursive: bool, pub include_hidden: bool }
 
 ---
 
-## Python Package `fastglob` (`python/fastglob/__init__.py`, `__version__ 0.1.3`, PyO3 in-process `_core`)
+## Python Package `fastglob` (`python/fastglob/__init__.py`, `__version__ 0.1.4`, PyO3 in-process `_core`)
 
 **Install:** `pip install -e python` or `PYTHONPATH=python` (**verified** 2026-08-22 `PYTHONPATH=python python3 -c 'import fastglob; print(fastglob.escape("a*b"))'` → `a[*]b`)
 
@@ -157,7 +157,7 @@ the installed reference implementation.
 
 ### `fastglob.iglob(...) -> Iterator[str] | Iterator[bytes]`
 
-**Source:** `python/fastglob/__init__.py:250-296` — one binary call, yields lazily
+**Source:** `python/fastglob/__init__.py:250-296` — one in-process engine call, then yields the materialized list
 
 ```python
 @overload
@@ -166,7 +166,7 @@ def iglob(pathname: Union[str, os.PathLike], *, ...) -> Iterator[str]: ...
 def iglob(pathname: bytes, *, ...) -> Iterator[bytes]: ...
 ```
 
-**Verification:** `list(fastglob.iglob("**/*.py", recursive=True))` same as `glob` but yields; item type follows pattern type (VERIFIED both types 2026-08-22)
+**Behavior:** `iglob` preserves the stdlib iterator-shaped API and item types, but it is not streaming in 0.1.x: one in-process engine call materializes the complete result list, then the iterator yields it. Peak memory is therefore the same as `glob()` for the pattern. `list(fastglob.iglob("**/*.py", recursive=True))` is content-equivalent to `glob(...)` (VERIFIED for both str and bytes modes 2026-08-22). True streaming is deferred to a later feature rather than changing this drop-in surface.
 
 ### `fastglob.escape(pathname) -> str | bytes`
 

@@ -17,7 +17,7 @@
 ## Container Diagram (Verified via `find` + `Makefile`)
 
 ```
-[Agent Python code] --import fastglob--> [python/fastglob/__init__.py] --PyO3 in-process _core--> [Rust engine fastglob._core (maturin/PyO3, 0.1.3)]
+[Agent Python code] --import fastglob--> [python/fastglob/__init__.py] --PyO3 in-process _core--> [Rust engine fastglob._core (maturin/PyO3, 0.1.4)]
          |                                                                                         |
          |--- stdlib fallback (gnu-glob escape hatch, planned)                                     |--- filesystem (readdir, fstatat, openat)
          |--- tests/fixtures/tree (139 cases, 9 families)                                        |--- matcher fnmatch-3.12 (surrogateescape)
@@ -63,7 +63,7 @@ docs/{compatibility-contract,benchmark-discipline,failure-modes,final-gate} (doc
 
 ### 2. Walker (`src/fastglob/src/walk.rs:1-1717`)
 
-Port of `/usr/local/lib/python3.12/glob.py` algorithm:
+Port of `/usr/lib/python3.12/glob.py` algorithm:
 
 ```
 _iglob -> _glob1 (filter via matcher) / _glob2 (recursive) -> _rlistdir (recurse) -> _iterdir (listdir)
@@ -84,7 +84,7 @@ _iglob -> _glob1 (filter via matcher) / _glob2 (recursive) -> _rlistdir (recurse
 - **Output:** `sep = NUL if --null else newline` (`main.rs:267`), broken-pipe ignored
 - **Exit:** `0` success or empty, `2` misuse (diagnostics on `stderr`)
 
-**Verified:** `src/target/release/fastglob --help` → `Options:` 5 flags + `escape` (387KB)
+**Verified:** `src/target/release/fastglob --help` → `Options:` 5 flags + `escape` (452KB)
 
 ### 4. Python Wrapper (`python/fastglob/__init__.py`)
 
@@ -102,7 +102,7 @@ _iglob -> _glob1 (filter via matcher) / _glob2 (recursive) -> _rlistdir (recurse
 
 **Runtime:** In-process PyO3 `fastglob._core` (no per-call subprocess, no `pass_fds`). No daemon, cache, index, network.
 
-**Transparent layer (DEPLOYED, and stale on this box):** `glob`-named module `shim/glob.py` (0.1.3) injected via `PYTHONPATH=/opt/fastglob-shim` at `bashrc/profile.d/PAM/BASH_ENV`, with a `gnu_glob` escape hatch (order: engine → 139/139 → bench/profile → shim). Deployment date 2026-08-27 for the initial install; the box carries a 2026-09-02 revision that is NOT the current `shim/glob.py` (see README "Deployment drift").
+**Transparent layer (DEPLOYED, and stale on this box):** `glob`-named module `shim/glob.py` (0.1.4) injected via `PYTHONPATH=/opt/fastglob-shim` at `bashrc/profile.d/PAM/BASH_ENV`, with a `gnu_glob` escape hatch (order: engine → 139/139 → bench/profile → shim). Deployment date 2026-08-27 for the initial install; the box carries a 2026-09-02 revision that is NOT the current `shim/glob.py` (see README "Deployment drift").
 
 **Deployment driver — `tools/deploy.sh` (`make deploy` / `rollback` / `deploy-status` / `deploy-verify`; remedy R4).** Two artifacts are deployed together because either one alone is half a system: the `fastglob` wheel → site-packages of every interpreter in `PYTHONS`, and `shim/*.py` → `$SHIM_DIR` (a `glob`-named module whose absence silently degrades to stdlib).
 

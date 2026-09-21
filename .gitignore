@@ -56,3 +56,10 @@ python/fastglob/*.so
 
 # Maat audit reports (local-only)
 .maat/
+
+# PyPI publish credentials (local-only, never commit)
+.pypirc
+
+# Agent/code-intelligence workspace state (local-only)
+.agents/
+.codegraph/

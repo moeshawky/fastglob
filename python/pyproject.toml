@@ -38,12 +38,9 @@ features = ["pyo3"]
 
 [project]
 name = "fastglob"
-version = "0.1.3"
+version = "0.1.4"
 description = "Python compatibility wrapper around the fastglob engine"
-# TODO (operator): add a per-package README (maturin requires the readme
-# inside python/, so the repo-root README.md cannot be referenced directly).
-# Until then the wheel carries the one-line description; the repo README
-# documents this package fully.
+readme = "README.md"
 license = "MIT"
 requires-python = ">=3.8"
 authors = [{ name = "Moe Shawky", email = "moe@libermoe.com" }]

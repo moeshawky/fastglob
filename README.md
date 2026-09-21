@@ -2,7 +2,18 @@
 
 A faster pathname-globbing engine for Linux, compatibility-locked to Python's stdlib `glob`.
 
-**Source:** `src/fastglob/src/lib.rs:1-33` — single-pass port of `/usr/local/lib/python3.12/glob.py` (identified at runtime, never hard-coded)
+[![CI](https://github.com/moeshawky/fastglob/actions/workflows/ci.yml/badge.svg)](https://github.com/moeshawky/fastglob/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/fastglob.svg)](https://pypi.org/project/fastglob/)
+[![crates.io](https://img.shields.io/crates/v/fastglob.svg)](https://crates.io/crates/fastglob)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+**Current release: 0.1.4.** The Python distribution/import package and Rust crate
+share the `fastglob` name. Linux only; this is Python `glob`-style pathname
+matching, not shell brace expansion, micromatch, gitignore, or `pathlib`
+acceleration. Recursive `**` requires `recursive=True` in the Python API or
+`--recursive` in the CLI.
+
+**Source:** `src/fastglob/src/lib.rs:1-33` — single-pass port of `/usr/lib/python3.12/glob.py` (identified at runtime, never hard-coded)
 **Verified:** 2026-09-21 — `cargo test` **34 passed (17 lib unit + 7 cli_boundaries + 10 cli_misuse)**, `make compat` **139/139 PASS**, `make test` package **27 OK** + shim **6 ran/1 skipped** + shim parity **5 OK**, `make test` self-test **139/139 + zone 3/3**, `cargo fmt --check` clean, `clippy --workspace --all-targets --all-features -D warnings` clean (see Verification)
 
 > **Counts and line numbers in this file were re-measured on 2026-09-21.** The previous stamp (2026-08-23) asserted 33 cargo tests / 20 package tests / 3.12.13 / uid 0; none of those matched the repository or its committed oracle capture. Every number below is now a `wc -l`, count, or raw command output.
@@ -17,7 +28,7 @@ A faster pathname-globbing engine for Linux, compatibility-locked to Python's st
 ```bash
 make build
 # Expected: Finished `release` profile [optimized] target(s)
-# Binary: src/target/release/fastglob 387KB (396280 bytes, stripped, LTO thin)
+# Binary: src/target/release/fastglob 452KB (463576 bytes, stripped, LTO thin)
 ```
 **Source:** `Makefile:18-19`, `src/Cargo.toml:13-17` (`profile.release`: opt-level 3, LTO thin, strip), `src/fastglob/Cargo.toml:11-13` (bin target)
 
@@ -60,7 +71,7 @@ make test
 ```
 **Source:** `tests/fixtures/cases.json` (139 cases), `tests/compat/compare.py:98-165` (Counter multiset, cycle-zone-tolerant)
 
-**Last Verified:** 2026-08-23 19:03 UTC
+**Last Verified:** 2026-09-22 UTC
 **Verification Command:** `make test && cargo clippy -- -D warnings && python3 tests/compat/compare.py --self-test`
 
 ## Compatibility Scope
@@ -78,7 +89,7 @@ Covered families (`docs/compatibility-contract.md:8`):
 - 8.6 Filesystem errors (unreadable, disappearing — pruned)
 - 8.7 Pathological filenames (spaces, Unicode, newline, byte-exact via `OsStr` end-to-end `lib.rs:14`)
 - 8.8 `root_dir` / `dir_fd` / `include_hidden` (`walk.rs:248-368` `listdir`/`scan_fd`)
-- 8.9 `escape` / `has_magic` (`matcher.rs:547-569`), `translate` deferred (not exposed); `match(pattern, path)` single-path match **present but unreleased** (`__version__` is `0.1.3`) with the SAME fnmatch semantics (whole-path, `*` crosses `/`) — oracle: stdlib `fnmatch.fnmatchcase` in **str** mode; in **bytes** mode the engine decodes as `os.fsdecode` (UTF-8 + surrogateescape), so it is fnmatch-exact except for paths containing a valid multi-byte UTF-8 sequence — a bounded, pinned divergence (§8.10)
+- 8.9 `escape` / `has_magic` (`matcher.rs:547-569`), `translate` deferred (not exposed); `match(pattern, path)` single-path match released in `0.1.4` with the SAME fnmatch semantics (whole-path, `*` crosses `/`) — oracle: stdlib `fnmatch.fnmatchcase` in **str** mode; in **bytes** mode the engine decodes as `os.fsdecode` (UTF-8 + surrogateescape), so it is fnmatch-exact except for paths containing a valid multi-byte UTF-8 sequence — a bounded, pinned divergence (§8.10)
 
 Ordering is documented-unspecified: tests compare `Counter` multisets, never ordered lists, never plain sets. Duplicate results from overlapping `**` expansions are preserved.
 
@@ -87,24 +98,34 @@ Ordering is documented-unspecified: tests compare `Counter` multisets, never ord
 ## Installation
 
 ```bash
-make build   # cargo build --release -> src/target/release/fastglob, 387KB (only for source-dev / direct CLI use)
+make build   # cargo build --release -> src/target/release/fastglob, 452KB (only for source-dev / direct CLI use)
 ```
 
-Python package (separate, never shadows stdlib `glob`):
+Python distribution and import package: `fastglob` (separate, never shadows
+stdlib `glob` when imported directly):
 ```bash
 pip install fastglob    # PyPI: engine ships inside the wheel — just works, no make build
 pip install -e python   # source dev: compiles the in-process engine via maturin (or: PYTHONPATH=python)
 ```
 
+**Naming note:** this project intentionally keeps the `fastglob` distribution
+and import name. `fast-glob` is also used by projects on npm and crates.io,
+and a similarly named PyPI distribution may already exist or may be claimed by
+someone else. Check the registry before installing or publishing; if PyPI ever
+forces a distribution-name change, the import module remains `fastglob` and
+only the distribution name will change. The Rust crate remains Linux-only.
+
 ```python
 import fastglob
 fastglob.glob("*.py", recursive=True, include_hidden=False)
 list(fastglob.iglob("a/**/b.txt", recursive=True))
+# iglob keeps the stdlib iterator-shaped API but materializes the full list
+# in one engine call first; peak memory equals fastglob.glob(...).
 fastglob.escape("a*b")  # -> "a[*]b"
 fastglob.match("**/vendor/**", "a/vendor/b.rs")  # -> True (no filesystem access)
 ```
 
-### `fastglob.match(pattern, path)` (present since commit `aacfa41`; **not yet released** — `__version__` is still `0.1.3`)
+### `fastglob.match(pattern, path)` (released in `0.1.4`)
 
 Single-path match with NO filesystem access — the path is pure data (never opened, never stat'ed, never walked). Semantics are the engine's fnmatch-3.12 matcher applied to the WHOLE path string (stdlib `fnmatch` parity, oracle-verified):
 
@@ -141,17 +162,17 @@ Notes (measured, not adjectives):
 - `--root-dir` and `--dir-fd` are mutually exclusive (specifying both is exit 2) — **verified:** `fastglob --root-dir /tmp --dir-fd 3 -- '*'` → `fastglob: cannot specify both --root-dir and --dir-fd` rc 2 (`main.rs:166-168`).
 - NUL bytes in PATTERN or `--root-dir` are rejected with exit 2 by the in-process parse (same exception TYPE as Python's `ValueError` — the engine's message text differs, see below; exercised by the cargo tests, `main.rs:149-154`). From a real `execve`, an argv entry is a C string, so a NUL byte truncates the argument BEFORE the binary sees it (**measured 2026-08-23:** `fastglob escape a\0b` → prints `a`, rc 0). The Python wrapper meets this boundary in-process (**no `subprocess` since 0.1.1**) and raises `ValueError` for NUL in pattern/root_dir (`fastglob: embedded null byte in PATTERN` / `... in --root-dir`, measured 2026-09-21 — same exception type as stdlib, different message text), while the oracle returns `[]` for a NUL pattern and only raises when a NUL reaches `scandir` (e.g. in `root_dir`) — a known MINOR error-boundary divergence on NUL patterns, documented here rather than hidden.
 - Patterns longer than 8192 bytes or with more than 512 path components are rejected with exit 2 to bound recursion depth — **verified:** `perl -e 'exec($ARGV[0], "--", "a/"x34133)' fastglob` → `fastglob: pattern too long` rc 2, previous stack overflow SIGABRT -6 fixed (`main.rs:158-164`, `walk.rs:48-51`).
-- Symlink cycles are tolerated via kernel ELOOP pruning (Level C, zone-tolerant differential); see `docs/compatibility-contract.md` §8.5a. **Measured:** `fastglob --recursive --root-dir /tmp/cycle '**'` → 41 lines bounded, no hang (10s `SIGALRM` guard `case_runner.py:86-98`).
+- Symlink cycles are tolerated via kernel ELOOP pruning (Level C, zone-tolerant differential); see `docs/compatibility-contract.md` §8.5a. Recursive walks terminate, but the exact duplicate count of cycle paths is unspecified and may differ from stdlib and from `FASTGLOB_NO_FUSED`; the fused path remains enabled. **Measured:** `fastglob --recursive --root-dir /tmp/cycle '**'` → 41 lines bounded, no hang (10s `SIGALRM` guard `case_runner.py:86-98`).
 
 ## Measured Characteristics (Sekel — Ratios, Not Adjectives)
 
 | Claim | Ratio | How to Measure |
 |-------|-------|----------------|
-| Binary size | 387KB (396280 bytes, stripped, LTO thin, opt-level 3) | `ls -lh src/target/release/fastglob` |
+| Binary size | 452KB (463576 bytes, stripped, LTO thin, opt-level 3) | `ls -lh src/target/release/fastglob` |
 | Build time | 1.4s incremental / 3.9s clean (measured 2026-08-22) | `time make build` |
 | Unit tests | cargo test 34 passed (17 lib unit + 7 cli_boundaries + 10 cli_misuse) | `cargo test --manifest-path src/Cargo.toml` |
 | Compat coverage | 139 cases, 9 families (8.1:15 8.2:13 8.3:14 8.4:21 8.5:16 8.6:8 8.7:17 8.8:18 8.9:17) | `python3 tests/compat/compare.py --candidate tests/compat/candidate.json` |
-| Compat result | 139/139 PASS (Counter multiset, `[zone]` for s08/s09/r12/r13/r17/r19) | `make compat` |
+| Compat result | 139/139 PASS (Counter multiset; cycle paths use the Level C zone protocol) | `make compat` |
 | Python package tests | 27 OK | `python3 tests/test_package.py` |
 | Shim tests | 6 ran (1 skipped) + 5 parity OK | `make shim-test` |
 | Clippy | 0 warnings with `-D warnings` | `cargo clippy -- -D warnings` |
@@ -211,7 +232,7 @@ python3 tests/compat/compare.py --self-test  # 139/139 + 3/3 zone synthetic
 - **Engine:** Single-pass Rust port of `glob.py` algorithm (`_iglob → _glob1/_glob2 → _rlistdir → _iterdir`), plus a **fused fast path** (`try_fast` and helpers, consulted first, with the verbatim port as fallback) — measured `wc -l` (post-format): `walk.rs` **1717**, `matcher.rs` **790**, `lib.rs` **79**, `main.rs` **339**, `pyo3_ext.rs` **213**. Setting the env var **`FASTGLOB_NO_FUSED`** (non-empty) disables the fused path for the whole process and forces the verbatim port — a test affordance for differentially exercising the two implementations; latched once at the first glob call, inert when unset, and a no-op for `--dir-fd`. All `&[u8]` byte-exact, `OsStr` end-to-end, no lossy UTF-8.
 - **Matcher:** `src/fastglob/src/matcher.rs:54` `decode_chars` surrogateescape `0xDC00|b`, `compile` (:208) fnmatch-3.12 translate port, `matches` (:465) atomic `(?>.*?F)`. Differential vs stdlib `fnmatch.fnmatchcase` is committed and reproducible: `tests/test_match_bytes_oracle.py` (59,860 exhaustive + 20,000 random str pairs, 0 mismatches).
 - **Files:** `src/fastglob/src/lib.rs:18-19` `pub mod matcher, walk`; `Cargo.toml` `libc 0.2` only.
-- **Python package:** `python/fastglob/__init__.py` calls the PyO3 in-process `_core` (no subprocess, no `pass_fds`; `os.fsdecode`/`fsencode` surrogateescape). The deployed shim `shim/glob.py` (0.1.3) shadows stdlib `glob` via `PYTHONPATH=/opt/fastglob-shim` with `gnu_glob` escape hatch.
+- **Python package:** `python/fastglob/__init__.py` calls the PyO3 in-process `_core` (no subprocess, no `pass_fds`; `os.fsdecode`/`fsencode` surrogateescape). The deployed shim `shim/glob.py` (0.1.4) shadows stdlib `glob` via `PYTHONPATH=/opt/fastglob-shim` with `gnu_glob` escape hatch.
 - **Bench/Compat:** `bench/bench.py` **486** lines, `tests/compat/{case_runner.py,run_engine.py,compare.py}` harness with `Counter` + `zone` protocol (`compare.py:98-165`).
 
 See `docs/architecture.md` for C4 diagram and `docs/api.md` for typed signatures.
@@ -247,7 +268,7 @@ ls -lh src/target/release/fastglob
 
 ## Transparent Replacement (deployed)
 
-Status: DEPLOYED — drop-in `glob` acceleration via `PYTHONPATH=/opt/fastglob-shim` injection (`shim/glob.py`, 0.1.3) with `gnu_glob` escape hatch. Order: engine → 139/139 → bench/profile → shim. (See `docs/architecture.md` Deployment.)
+Status: DEPLOYED — drop-in `glob` acceleration via `PYTHONPATH=/opt/fastglob-shim` injection (`shim/glob.py`, 0.1.4) with `gnu_glob` escape hatch. Order: engine → 139/139 → bench/profile → shim. (See `docs/architecture.md` Deployment.)
 
 **Deployment drift (measured 2026-09-21):** the file actually installed at `/opt/fastglob-shim/glob.py` is **not** the repo's `shim/glob.py` (different length and md5; `diff /opt/fastglob-shim/glob.py shim/glob.py | wc -l` = **280**). The deployed copy predates the repo revision, so on the deployed box `FASTGLOB_SHIM_LOUD` is **absent** (`grep -c FASTGLOB_SHIM_LOUD /opt/fastglob-shim/glob.py` → `0`) and the shim does not exclude ad-hoc shim directories from `sys.path`. `shim/` is canonical; deploying it is an operator action (`agent-bin` Pillar 3). `make deploy-status` (added 2026-09-21; read-only, exits 1 on drift) now *detects* it instead of only documenting it — its first run found a **second** drift class in the same family: the installed wheel at `/usr/local/lib/python3.12/dist-packages/fastglob` is a 2026-08-28 build whose `__init__.py` has no `match` while the repo's package does (`grep -c '^def match'` → **0** vs **3**). See `.tickets/` and the maintenance ledger.
 
@@ -256,9 +277,9 @@ Status: DEPLOYED — drop-in `glob` acceleration via `PYTHONPATH=/opt/fastglob-s
 **Observable routing (present in `shim/`, `FASTGLOB_SHIM_LOUD`):** the shim is silent by default (invisibility guarantee unchanged). Set `FASTGLOB_SHIM_LOUD` to any non-empty value and the shim emits ONE stderr line at first interception naming the engine that answered:
 
 ```
-fastglob-shim: intercepting 'glob' (shim 0.1.3, engine: fastglob 0.1.3)
+fastglob-shim: intercepting 'glob' (shim 0.1.4, engine: fastglob 0.1.4)
 # or, when the engine is missing:
-fastglob-shim: intercepting 'glob' (shim 0.1.3, engine: STDLIB FALLBACK (fastglob not importable))
+fastglob-shim: intercepting 'glob' (shim 0.1.4, engine: STDLIB FALLBACK (fastglob not importable))
 ```
 
 Never touches stdout; never raises; exactly one line per process. Tests: `tests/test_shim_loud.py`.

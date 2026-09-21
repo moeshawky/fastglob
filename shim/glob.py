@@ -100,7 +100,7 @@ try:
     __all__ = list(getattr(_stdlib_glob, "__all__", ["glob", "iglob", "escape"]))
     __version__ = getattr(_fg, "__version__", "fastglob-shim")
     _engine = "fastglob"
-    _shim_version = "0.1.3"
+    _shim_version = "0.1.4"
 
     # --- seamless proxy: eager copy of all stdlib attributes not already overridden ---
     # Keep module dunders from this shim ( __spec__, __file__, __cached__, __loader__, etc.)
@@ -146,7 +146,7 @@ except Exception as _e:
     except Exception:
         pass
     _engine = "stdlib"  # type: ignore[no-redef]
-    _shim_version = "0.1.3"
+    _shim_version = "0.1.4"
 
     def __getattr__(_name: str):  # type: ignore[no-redef]
         try:

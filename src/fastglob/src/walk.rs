@@ -1,5 +1,5 @@
 //! Single-pass walker — a literal port of the installed
-//! `/usr/local/lib/python3.12/glob.py` algorithm (Level A source of truth):
+//! `/usr/lib/python3.12/glob.py` algorithm (Level A source of truth):
 //!
 //!   iglob -> _iglob -> _glob0 / _glob1 / _glob2 -> _rlistdir -> _iterdir
 //!

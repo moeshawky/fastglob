@@ -1,6 +1,6 @@
 //! fastglob — a single-pass pathname-globbing engine for Linux,
 //! compatibility-locked to the installed Python stdlib `glob`
-//! (`/usr/local/lib/python3.12/glob.py`, identified at runtime by the
+//! (`/usr/lib/python3.12/glob.py`, identified at runtime by the
 //! harness, never hard-coded here).
 //!
 //! Public surface:

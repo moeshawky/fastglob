@@ -93,6 +93,12 @@ Requirements:
 
 DO NOT invent a requirement to reproduce a particular kernel ELOOP depth or number of repeated cycle paths unless this is shown to be a documented/required behavior.
 
+Contract summary: recursive walks over directory cycles must terminate; the exact
+number of duplicate cycle paths is Level C and unspecified. It may differ from
+the Python stdlib and between the fused path and `FASTGLOB_NO_FUSED`'s verbatim
+fallback. The fused path remains enabled; compatibility checks compare the
+non-cycle core exactly and use the zone protocol below for cycle-redundant paths.
+
 Safety timeout tests are mandatory for cycles.
 
 ### 8.5a Cycle-zone protocol (Level C tolerance for symlink-cycle expansion)
@@ -141,7 +147,8 @@ A zone case PASSES iff ALL hold:
    cycle-redundant re-enumerations are zone-tolerated.
 
 Zone passes are reported as `PASS <id> (<section>) [zone]` and count as
-passed in the `133 executed / N passed / M failed` summary. Zone failures
+passed in the current executed/passed/failed summary. The exact count is not a
+contract for cycle-zone cases. Zone failures
 use the visible classification `zone_violation` with the offending paths in
 the §21 report. Zone membership is the union of the oracle and candidate
 record flags (the capture predates the s09 flag and is not re-captured).

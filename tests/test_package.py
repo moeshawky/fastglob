@@ -151,7 +151,7 @@ class IglobLazinessContract(TreeFixture):
 
     def test_returns_lazy_iterator_not_a_list(self):
         it = fastglob.iglob("*", root_dir=self.root)
-        self.assertIsInstance(it, Iterator, "documented: yields lazily")
+        self.assertIsInstance(it, Iterator, "documented: iterator-shaped API")
         self.assertNotIsInstance(it, list)
         self.assertTrue(isgenerator(it), "documented mechanic: generator")
 
